@@ -732,6 +732,15 @@ async function send() {
       body: JSON.stringify({ message: text, session_id: currentSessionId || '', role: currentRole }),
     });
 
+    // Check for auth/error before streaming
+    if (!res.ok) {
+      typingEl.remove();
+      const errBody = await res.text();
+      addMsg('assistant', '[错误: ' + res.status + ']');
+      streaming = false; btn.disabled = false;
+      return;
+    }
+
     typingEl.remove();
     let msgEl = null;
     let currentChar = null; // track which character is speaking (for loggia)
@@ -775,7 +784,9 @@ async function send() {
             if (!msgEl) { msgEl = addMsg('assistant', ''); }
             msgEl.textContent += '\n[' + data.error + ']';
           }
-        } catch {}
+        } catch (parseErr) {
+          console.error('SSE parse error:', parseErr, line);
+        }
       }
     }
     if (msgEl) {
@@ -784,7 +795,8 @@ async function send() {
     }
   } catch (err) {
     typingEl?.remove();
-    addMsg('assistant', '[连接错误]');
+    addMsg('assistant', '[连接错误: ' + err.message + ']');
+    console.error('stream error:', err);
   }
 
   streaming = false;
