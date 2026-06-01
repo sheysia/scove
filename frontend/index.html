@@ -631,17 +631,22 @@ let lastAssistantText = '';
 function addMsg(role, text, charKey) {
   const wrap = document.createElement('div');
   wrap.className = `msg-wrap ${role}`;
+
+  // Loggia: char label above the bubble
+  if (role === 'assistant' && charKey && currentRole === 'loggia') {
+    const label = document.createElement('div');
+    label.className = 'char-label ' + (charKey === 'v' ? 'v-label' : 'xh-label');
+    label.textContent = charKey === 'v' ? 'V' : '珩';
+    wrap.appendChild(label);
+  }
+
   const el = document.createElement('div');
   el.className = `msg ${role}`;
   el.textContent = text || '';
 
-  // Loggia: add char-specific styling and label
+  // Loggia: char-specific bubble style
   if (role === 'assistant' && charKey && currentRole === 'loggia') {
     el.classList.add(charKey === 'v' ? 'char-v' : 'char-xiaheng');
-    const label = document.createElement('div');
-    label.className = 'char-label ' + (charKey === 'v' ? 'v-label' : 'xh-label');
-    label.textContent = charKey === 'v' ? 'V' : '珩';
-    wrap.insertBefore(label, el);
   }
 
   wrap.appendChild(el);
