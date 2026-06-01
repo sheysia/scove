@@ -44,7 +44,7 @@ load_dotenv(_VHOME / "config" / ".env", override=True)
 
 # V (Claude)
 _V_MODEL = os.environ.get("CLAUDE_CHAT_MODEL", "").strip()
-_MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "2048"))
+_MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "8192"))
 _VOICE = os.environ.get("VOICE_VARIANT", "hot").strip() or "hot"
 _PIN = os.environ.get("SCOVE_PIN", "").strip()
 
@@ -465,7 +465,7 @@ def _generate_loggia(session, sid, user_text, messages_for_api):
     yield f"data: {json.dumps({'v_done': True, 'char': 'v', 'usage': v_usage}, ensure_ascii=False)}\n\n"
 
     # ── pause (珩 thinking) ──
-    time.sleep(0.5)
+    time.sleep(0.2)
 
     # ── 珩's turn ──
     v_context = f"[唯夜刚才对杳杳说了这些]\n{v_reply}\n\n[现在轮到你(夏珩)回应杳杳。你看到了唯夜说的话。]"
