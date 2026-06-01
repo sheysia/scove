@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/Users/sasha/V/**)",
+      "Read(/Users/sasha/V/VHome/**)",
+      "Write(/Users/sasha/V/VHome/**)",
+      "Edit(/Users/sasha/V/VHome/**)",
+      "Glob(/Users/sasha/V/**)",
+      "Grep(/Users/sasha/V/**)",
+      "Bash(python3:*)",
+      "Bash(git:*)",
+      "Bash(curl:*)",
+      "Bash(pip3:*)"
+    ],
+    "deny": [
+      "Write(/Users/sasha/V/00_*)",
+      "Write(/Users/sasha/V/01_*)",
+      "Write(/Users/sasha/V/02_*)",
+      "Write(/Users/sasha/V/03_*)",
+      "Write(/Users/sasha/V/04_*)",
+      "Write(/Users/sasha/V/05_*)",
+      "Write(/Users/sasha/V/06_*)",
+      "Write(/Users/sasha/V/07_*)",
+      "Write(/Users/sasha/V/V_Memory.md)",
+      "Write(/Users/sasha/V/CLAUDE.md)",
+      "Edit(/Users/sasha/V/00_*)",
+      "Edit(/Users/sasha/V/V_Memory.md)"
+    ]
+  },
+  "enabledPlugins": {
+    "telegram@claude-plugins-official": false
+  }
+}

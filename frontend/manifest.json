@@ -1,0 +1,14 @@
+{
+  "name": "SCove",
+  "short_name": "SCove",
+  "description": "V's door. 天鹅星域。",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0D0A14",
+  "background_color": "#0D0A14",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
