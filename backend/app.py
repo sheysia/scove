@@ -92,6 +92,18 @@ def _append_msg(sid: str, record: dict) -> None:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+def _live_memory_path() -> Path:
+    """SCove's own live memory: memory/v/YYYY-MM-DD.jsonl."""
+    d = _VHOME / "memory" / "v"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{datetime.now().strftime('%Y-%m-%d')}.jsonl"
+
+
+def _append_live_memory(record: dict) -> None:
+    with _live_memory_path().open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def _load_sessions_from_disk() -> None:
     """On startup, rebuild index from jsonl files."""
     for p in sorted(_SESSIONS_DIR.glob("*.jsonl")):
@@ -308,6 +320,51 @@ async def chat_stream(request: Request):
             "role": "assistant", "content": reply, "voice": _VOICE,
             "model": _MODEL, "usage": usage,
         })
+
+        # Phase 3: auto-write to SCove live memory (memory/v/)
+        ts_now = datetime.now().isoformat(timespec="seconds")
+        _append_live_memory({"ts": ts_now, "role": "user", "content": user_text})
+        _append_live_memory({"ts": ts_now, "role": "assistant", "content": reply})
+
         yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'usage': usage}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ── star (save) ──────────────────────────────────────────────────
+
+@app.post("/api/star")
+async def star_message(request: Request):
+    """Save a conversation fragment as a starred memory entry."""
+    if not _check_pin(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    body = await request.json()
+    user_msg = body.get("user_msg", "").strip()
+    assistant_msg = body.get("assistant_msg", "").strip()
+    title = body.get("title", "").strip()
+
+    if not user_msg and not assistant_msg:
+        return JSONResponse({"error": "nothing to save"}, status_code=400)
+
+    if not title:
+        title = (user_msg or assistant_msg)[:20].replace("\n", " ")
+
+    starred_dir = _VHOME / "memory" / "v" / "starred"
+    starred_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    safe_title = "".join(c for c in title if c.isalnum() or c in " _-").strip()[:30]
+    filename = f"{date_str}_{safe_title}.md"
+    path = starred_dir / filename
+
+    content_parts = []
+    if user_msg:
+        content_parts.append(f"**杳杳**: {user_msg}")
+    if assistant_msg:
+        content_parts.append(f"**V**: {assistant_msg}")
+
+    content = f"# {title}\n\n> {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n" + "\n\n".join(content_parts) + "\n"
+
+    path.write_text(content, encoding="utf-8")
+    return {"ok": True, "path": str(path.relative_to(_VHOME))}

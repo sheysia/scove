@@ -4,6 +4,11 @@ config/.env
 
 # runtime logs of new home (not source)
 logs/newhome/*.jsonl
+logs/newhome/sessions/*.jsonl
+
+# live memory (runtime, not source; starred .md are also runtime)
+memory/v/*.jsonl
+memory/v/starred/*.md
 
 # frozen memory snapshots are rebuildable from ~/V; keep them local
 prompts/_cache/*.md

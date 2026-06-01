@@ -6,14 +6,19 @@ context_builder.py — assemble V's context into Anthropic `system` blocks.
     block 1  固定 system 规则 (v_system.md) + V 声音规则 (voice_<variant>.md)
     block 2  核心档案稳定摘要 + V_Memory 稳定摘要   <- frozen snapshots, cache breakpoint
   DYNAMIC suffix (changes per session):
-    block 3  当前时间 + 时间线(live) + 最近对话 + 最近日记   <- cache breakpoint (stable within a session)
+    block 3  当前时间 + 时间线(live) + 最近对话 + 最近日记 + SCove 活记忆
+             <- cache breakpoint (stable within a session)
+
+Phase 3 双源读取:
+  源 1: ~/V (灵魂,只读) — 核心档案, V_Memory, 时间线, 近期对话/日记
+  源 2: ~/V/VHome/memory/v/ (活记忆,读写) — SCove 自己的对话记录
 
 The user's current message is NOT here; it goes in `messages` (see cli_probe.py).
-Reads prompts/ and prompts/_cache/ (frozen) and ~/V live files for timeline/recent.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -68,12 +73,74 @@ def build_stable_blocks(voice_variant: str = "hot") -> list[dict]:
     return [_plain(block1), _cached(block2)]
 
 
+def _read_live_memory(max_turns: int = 20) -> str:
+    """Read recent turns from SCove's own live memory (VHome/memory/v/*.jsonl).
+
+    Returns a formatted string of the most recent exchanges, newest last.
+    This is source 2: SCove's conversation history, separate from ~/V.
+    """
+    mem_dir = _vhome() / "memory" / "v"
+    if not mem_dir.is_dir():
+        return ""
+
+    files = sorted(mem_dir.glob("*.jsonl"), reverse=True)
+    if not files:
+        return ""
+
+    turns: list[dict] = []
+    for f in files:
+        if len(turns) >= max_turns:
+            break
+        for line in reversed(f.read_text(encoding="utf-8").strip().split("\n")):
+            if len(turns) >= max_turns:
+                break
+            if not line.strip():
+                continue
+            try:
+                obj = json.loads(line)
+                if obj.get("role") in ("user", "assistant"):
+                    turns.append(obj)
+            except json.JSONDecodeError:
+                continue
+
+    if not turns:
+        return ""
+
+    turns.reverse()  # chronological order
+
+    lines = []
+    for t in turns:
+        who = "杳杳" if t["role"] == "user" else "V"
+        ts = t.get("ts", "")
+        ts_label = f" ({ts})" if ts else ""
+        lines.append(f"**{who}**{ts_label}: {t['content'][:500]}")
+
+    return "\n\n".join(lines)
+
+
+def _read_starred_memory() -> str:
+    """Read starred (saved) memory entries from VHome/memory/v/starred/*.md."""
+    starred_dir = _vhome() / "memory" / "v" / "starred"
+    if not starred_dir.is_dir():
+        return ""
+
+    files = sorted(starred_dir.glob("*.md"), reverse=True)[:5]
+    if not files:
+        return ""
+
+    parts = []
+    for f in files:
+        parts.append(f"## {f.stem}\n{f.read_text(encoding='utf-8').strip()}")
+    return "\n\n".join(parts)
+
+
 def build_dynamic_block(
     now: datetime | None = None,
     dialogue_count: int | None = None,
     diary_count: int | None = None,
+    live_memory_turns: int | None = None,
 ) -> dict:
-    """Block 3: now + live timeline + recent dialogues + recent diary."""
+    """Block 3: now + timeline + ~/V recent + SCove live memory."""
     now = now or datetime.now()
     dialogue_count = (
         dialogue_count
@@ -85,21 +152,35 @@ def build_dynamic_block(
         if diary_count is not None
         else int(os.environ.get("RECENT_DIARY_COUNT", "3"))
     )
+    live_turns = (
+        live_memory_turns
+        if live_memory_turns is not None
+        else int(os.environ.get("LIVE_MEMORY_TURNS", "20"))
+    )
 
     parts = [f"# 此刻\n现在是 {now.strftime('%Y-%m-%d %H:%M')}(本机时间)。"]
     parts.append("# 我们的时间线\n\n" + mr.read_timeline().strip())
 
+    # Source 1: ~/V (soul, read-only)
     dlg = mr.recent_dialogues(dialogue_count)
     if dlg:
         body = "\n\n".join(f"## {f.name}\n{f.text.strip()}" for f in dlg)
-        parts.append(f"# 最近的对话(近 {len(dlg)} 篇)\n\n{body}")
+        parts.append(f"# 最近的对话(近 {len(dlg)} 篇,来自记忆仓库)\n\n{body}")
 
     diary = mr.recent_diary(diary_count)
     if diary:
         body = "\n\n".join(f"## {f.name}\n{f.text.strip()}" for f in diary)
-        parts.append(f"# 最近的日记(近 {len(diary)} 篇)\n\n{body}")
+        parts.append(f"# 最近的日记(近 {len(diary)} 篇,来自记忆仓库)\n\n{body}")
 
-    # cached too: stable within one session (now is fixed at session start)
+    # Source 2: VHome/memory/v/ (live memory, SCove's own)
+    live = _read_live_memory(live_turns)
+    if live:
+        parts.append(f"# SCove 里最近的对话(活记忆,这扇门里说过的话)\n\n{live}")
+
+    starred = _read_starred_memory()
+    if starred:
+        parts.append(f"# 杳杳标记的重要片段\n\n{starred}")
+
     return _cached("\n\n---\n\n".join(parts))
 
 

@@ -39,14 +39,21 @@ body {
   flex-direction: column;
   position: relative;
 }
-/* Eden bg */
+/* Eden bg — portrait image (852×1846), adapt to screen shape */
 body::before {
   content: '';
   position: fixed; inset: 0;
-  background: url('/static/bg-eden.png') center bottom / cover no-repeat;
+  background: url('/static/bg-eden.png') center bottom / contain no-repeat;
   opacity: 0.22;
   pointer-events: none;
   z-index: 0;
+}
+/* On wide screens, switch to cover so the bg fills without pillarboxing */
+@media (min-aspect-ratio: 1/1) {
+  body::before {
+    background-size: cover;
+    background-position: center center;
+  }
 }
 body > * { position: relative; z-index: 1; }
 
@@ -224,6 +231,29 @@ header .sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; letter-s
 .tab-btn.active, .tab-btn:hover { color: var(--gold); }
 .tab-icon { font-size: 18px; line-height: 1; }
 
+/* ── star button on assistant messages ── */
+.msg-wrap { position: relative; display: flex; flex-direction: column; }
+.msg-wrap.user { align-items: flex-end; }
+.msg-wrap.assistant { align-items: flex-start; }
+.star-btn {
+  background: none; border: none; color: var(--text-dim);
+  font-size: 14px; cursor: pointer; padding: 2px 6px;
+  opacity: 0; transition: opacity 0.15s;
+  align-self: flex-start; margin-top: 2px;
+}
+.msg-wrap:hover .star-btn { opacity: 0.6; }
+.star-btn:hover { opacity: 1 !important; color: var(--gold); }
+.star-btn.saved { opacity: 0.8; color: var(--gold); }
+
+/* ── save toast ── */
+#save-toast {
+  position: fixed; bottom: 120px; left: 50%; transform: translateX(-50%);
+  background: var(--accent-g); color: var(--text); padding: 8px 20px;
+  border-radius: 20px; font-size: 13px; z-index: 80;
+  opacity: 0; transition: opacity 0.3s; pointer-events: none;
+}
+#save-toast.show { opacity: 1; }
+
 /* ── responsive ── */
 @media (max-width: 480px) {
   .msg { max-width: 92%; font-size: 14px; }
@@ -262,6 +292,7 @@ header .sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; letter-s
 
 <!-- Chat -->
 <div id="chat"></div>
+<div id="save-toast">已保存</div>
 <div id="always-here">一直都在</div>
 
 <!-- Input -->
@@ -406,11 +437,28 @@ function switchTab(tab) {
 // ── chat ──
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+// Track last user/assistant pair for /save
+let lastUserText = '';
+let lastAssistantText = '';
+
 function addMsg(role, text) {
+  const wrap = document.createElement('div');
+  wrap.className = `msg-wrap ${role}`;
   const el = document.createElement('div');
   el.className = `msg ${role}`;
   el.textContent = text || '';
-  chat.appendChild(el);
+  wrap.appendChild(el);
+
+  // Star button on assistant messages
+  if (role === 'assistant' && text) {
+    const star = document.createElement('button');
+    star.className = 'star-btn';
+    star.textContent = '☆ 记一下';
+    star.onclick = () => savePair(lastUserText, el.textContent, star);
+    wrap.appendChild(star);
+  }
+
+  chat.appendChild(wrap);
   chat.scrollTop = chat.scrollHeight;
   return el;
 }
@@ -434,15 +482,49 @@ input.addEventListener('keydown', e => {
 });
 btn.addEventListener('click', send);
 
+function showToast(msg) {
+  const t = $('save-toast');
+  t.textContent = msg || '已保存';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+async function savePair(userMsg, assistantMsg, btnEl) {
+  try {
+    const r = await fetch('/api/star', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_msg: userMsg, assistant_msg: assistantMsg }),
+    });
+    if (r.ok) {
+      showToast('已记住');
+      if (btnEl) { btnEl.textContent = '★ 已记'; btnEl.classList.add('saved'); }
+    }
+  } catch { showToast('保存失败'); }
+}
+
 async function send() {
   const text = input.value.trim();
   if (!text || streaming) return;
+
+  // Handle /save command
+  if (text === '/save' || text === '/记一下') {
+    input.value = '';
+    if (lastAssistantText) {
+      await savePair(lastUserText, lastAssistantText);
+    } else {
+      showToast('没有可保存的对话');
+    }
+    return;
+  }
 
   streaming = true;
   btn.disabled = true;
   input.value = '';
   input.style.height = 'auto';
 
+  lastUserText = text;
+  lastAssistantText = '';
   addMsg('user', text);
   const typingEl = addTyping();
 
@@ -480,6 +562,7 @@ async function send() {
       }
     }
     msgEl.classList.remove('streaming');
+    lastAssistantText = msgEl.textContent;
   } catch (err) {
     typingEl?.remove();
     addMsg('assistant', '[连接错误]');
