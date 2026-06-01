@@ -573,8 +573,23 @@ async function switchSession(sid) {
   try {
     const r = await fetch('/api/sessions/' + sid);
     const data = await r.json();
+    // Sync role from session data (important for loggia char labels)
+    if (data.role && data.role !== currentRole) {
+      currentRole = data.role;
+      document.body.classList.remove('role-xiaheng', 'role-loggia');
+      if (currentRole === 'xiaheng') document.body.classList.add('role-xiaheng');
+      if (currentRole === 'loggia') document.body.classList.add('role-loggia');
+      const cfg = ROLE_CONFIG[currentRole];
+      if (cfg) {
+        document.querySelector('header .sub').textContent = cfg.sub;
+        input.placeholder = cfg.placeholder;
+      }
+      document.querySelectorAll('.role-avatar').forEach(a => a.classList.remove('active'));
+      const av = document.querySelector('.role-avatar.' + currentRole);
+      if (av) av.classList.add('active');
+    }
     for (const m of data.messages) {
-      addMsg(m.role === 'user' ? 'user' : 'assistant', m.content, m.char || currentRole);
+      addMsg(m.role === 'user' ? 'user' : 'assistant', m.content, m.char);
     }
   } catch {}
   refreshSessions();
