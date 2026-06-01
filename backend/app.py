@@ -422,7 +422,7 @@ def _build_loggia_v_system():
 
 async def _generate_loggia(session, sid, user_text, messages_for_api):
     """User → V (Claude streaming) → 0.5s pause → 珩 (Gemini streaming)."""
-    import time
+    import asyncio
 
     # ── V's turn ──
     v_reply_parts = []
@@ -461,7 +461,7 @@ async def _generate_loggia(session, sid, user_text, messages_for_api):
     yield f"data: {json.dumps({'v_done': True, 'char': 'v', 'usage': v_usage}, ensure_ascii=False)}\n\n"
 
     # ── pause (珩 thinking) ──
-    time.sleep(0.5)
+    await asyncio.sleep(0.5)
 
     # ── 珩's turn (sees full history including V's reply) ──
     # Gemini needs last message to be user role. Wrap V's reply into a user-role
