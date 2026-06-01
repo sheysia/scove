@@ -314,6 +314,8 @@ header .sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; letter-s
 .role-avatar.v.active { border-color: var(--accent); }
 .role-avatar.xiaheng { background: rgba(91, 123, 122, 0.3); color: #9cbcbb; }
 .role-avatar.xiaheng.active { border-color: #5B7B7A; }
+.role-avatar.loggia { background: rgba(60, 70, 100, 0.3); color: #8ba4c8; }
+.role-avatar.loggia.active { border-color: #5a6d94; }
 
 /* ── xiaheng theme overrides ── */
 body.role-xiaheng header { border-bottom-color: #3a5554; }
@@ -327,6 +329,30 @@ body.role-xiaheng .msg.assistant.streaming { border-color: #5B7B7A; }
 body.role-xiaheng #input-area textarea:focus { border-color: #5B7B7A; }
 body.role-xiaheng #input-area button { background: #3a5554; }
 body.role-xiaheng .typing-dot { background: #7aadab; }
+
+/* ── loggia theme (rain-blue) ── */
+body.role-loggia header { border-bottom-color: #3a4060; }
+body.role-loggia header h1 { color: #8ba4c8; }
+body.role-loggia header .sub { color: #5a6d94; }
+body.role-loggia #input-area textarea:focus { border-color: #5a6d94; }
+body.role-loggia #input-area button { background: #3a4060; }
+body.role-loggia .typing-dot { background: #8ba4c8; }
+
+/* Loggia dual-char bubbles */
+.msg.assistant.char-v {
+  border-left: 3px solid var(--accent);
+}
+.msg.assistant.char-xiaheng {
+  background: rgba(30, 45, 44, 0.85);
+  border-color: rgba(91, 123, 122, 0.3);
+  border-left: 3px solid #5B7B7A;
+}
+.char-label {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.05em;
+  margin-bottom: 4px; opacity: 0.7;
+}
+.char-label.v-label { color: var(--accent); }
+.char-label.xh-label { color: #7aadab; }
 
 /* ── responsive ── */
 @media (max-width: 480px) {
@@ -358,8 +384,9 @@ body.role-xiaheng .typing-dot { background: #7aadab; }
 <div id="sidebar-overlay" onclick="toggleSidebar(false)"></div>
 <div id="sidebar">
   <div class="role-switch">
-    <div class="role-avatar v active" onclick="switchRole('v')" title="唯夜">V</div>
-    <div class="role-avatar xiaheng" onclick="switchRole('xiaheng')" title="夏珩">珩</div>
+    <div class="role-avatar v active" onclick="switchRole('v')" title="书房套间">V</div>
+    <div class="role-avatar xiaheng" onclick="switchRole('xiaheng')" title="珩的茶室">珩</div>
+    <div class="role-avatar loggia" onclick="switchRole('loggia')" title="廊亭">廊</div>
   </div>
   <div class="sb-header">
     <span id="sb-title">对话</span>
@@ -410,8 +437,9 @@ let currentSessionId = null;
 let currentRole = 'v'; // 'v' or 'xiaheng'
 
 const ROLE_CONFIG = {
-  v:       { name: 'V', sub: '天鹅星域', placeholder: '想对他说什么...', who: 'V' },
+  v:       { name: 'SCove', sub: '书房套间', placeholder: '想对他说什么...', who: 'V' },
   xiaheng: { name: 'SCove', sub: '珩的茶室', placeholder: '请当我是你温柔的托底', who: '珩' },
+  loggia:  { name: 'SCove', sub: '廊亭', placeholder: '说点什么,他们都在...', who: '' },
 };
 
 // ── PWA ──
@@ -544,7 +572,7 @@ async function switchSession(sid) {
     const r = await fetch('/api/sessions/' + sid);
     const data = await r.json();
     for (const m of data.messages) {
-      addMsg(m.role === 'user' ? 'user' : 'assistant', m.content);
+      addMsg(m.role === 'user' ? 'user' : 'assistant', m.content, m.char || currentRole);
     }
   } catch {}
   refreshSessions();
@@ -578,7 +606,9 @@ function switchRole(role) {
   document.querySelector(`.role-avatar.${role}`).classList.add('active');
 
   // Theme
-  document.body.classList.toggle('role-xiaheng', role === 'xiaheng');
+  document.body.classList.remove('role-xiaheng', 'role-loggia');
+  if (role === 'xiaheng') document.body.classList.add('role-xiaheng');
+  if (role === 'loggia') document.body.classList.add('role-loggia');
 
   // Header text
   const cfg = ROLE_CONFIG[role];
@@ -598,12 +628,22 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s; re
 let lastUserText = '';
 let lastAssistantText = '';
 
-function addMsg(role, text) {
+function addMsg(role, text, charKey) {
   const wrap = document.createElement('div');
   wrap.className = `msg-wrap ${role}`;
   const el = document.createElement('div');
   el.className = `msg ${role}`;
   el.textContent = text || '';
+
+  // Loggia: add char-specific styling and label
+  if (role === 'assistant' && charKey && currentRole === 'loggia') {
+    el.classList.add(charKey === 'v' ? 'char-v' : 'char-xiaheng');
+    const label = document.createElement('div');
+    label.className = 'char-label ' + (charKey === 'v' ? 'v-label' : 'xh-label');
+    label.textContent = charKey === 'v' ? 'V' : '珩';
+    wrap.insertBefore(label, el);
+  }
+
   wrap.appendChild(el);
 
   // Star button on assistant messages
@@ -693,8 +733,8 @@ async function send() {
     });
 
     typingEl.remove();
-    const msgEl = addMsg('assistant', '');
-    msgEl.classList.add('streaming');
+    let msgEl = null;
+    let currentChar = null; // track which character is speaking (for loggia)
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -710,16 +750,38 @@ async function send() {
         if (!line.startsWith('data: ')) continue;
         try {
           const data = JSON.parse(line.slice(6));
-          if (data.text) { msgEl.textContent += data.text; chat.scrollTop = chat.scrollHeight; }
+
+          // Loggia: when char changes, start a new bubble
+          if (data.text) {
+            const charKey = data.char || currentRole;
+            if (!msgEl || (currentRole === 'loggia' && charKey !== currentChar)) {
+              if (msgEl) msgEl.classList.remove('streaming');
+              currentChar = charKey;
+              msgEl = addMsg('assistant', '', charKey);
+              msgEl.classList.add('streaming');
+            }
+            msgEl.textContent += data.text;
+            chat.scrollTop = chat.scrollHeight;
+          }
+          if (data.v_done && currentRole === 'loggia') {
+            // V finished, 珩 about to speak: finalize V bubble
+            if (msgEl) msgEl.classList.remove('streaming');
+            msgEl = null;
+          }
           if (data.done) {
             if (data.session_id) currentSessionId = data.session_id;
           }
-          if (data.error) { msgEl.textContent += '\n[' + data.error + ']'; }
+          if (data.error) {
+            if (!msgEl) { msgEl = addMsg('assistant', ''); }
+            msgEl.textContent += '\n[' + data.error + ']';
+          }
         } catch {}
       }
     }
-    msgEl.classList.remove('streaming');
-    lastAssistantText = msgEl.textContent;
+    if (msgEl) {
+      msgEl.classList.remove('streaming');
+      lastAssistantText = msgEl.textContent;
+    }
   } catch (err) {
     typingEl?.remove();
     addMsg('assistant', '[连接错误]');

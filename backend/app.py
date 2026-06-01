@@ -102,7 +102,8 @@ def _append_msg(sid: str, record: dict) -> None:
 
 
 def _live_memory_path(role: str) -> Path:
-    d = _VHOME / "memory" / ("v" if role == "v" else "xiaheng")
+    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia"}.get(role, "v")
+    d = _VHOME / "memory" / role_dir
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{datetime.now().strftime('%Y-%m-%d')}.jsonl"
 
@@ -129,7 +130,10 @@ def _load_sessions_from_disk() -> None:
                 meta["created"] = obj.get("created", "")
                 meta["role"] = obj.get("role", "v")
             elif obj.get("role") in ("user", "assistant"):
-                meta["messages"].append({"role": obj["role"], "content": obj["content"]})
+                m = {"role": obj["role"], "content": obj["content"]}
+                if "char" in obj:
+                    m["char"] = obj["char"]
+                meta["messages"].append(m)
         _sessions[sid] = meta
 
 
@@ -239,7 +243,7 @@ async def create_session(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     body = await request.json()
     role = body.get("role", "v").strip()
-    if role not in ("v", "xiaheng"):
+    if role not in ("v", "xiaheng", "loggia"):
         role = "v"
     sid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
     s = {
@@ -262,7 +266,10 @@ async def get_session(sid: str, request: Request):
     return {
         "id": s["id"], "title": s["title"], "created": s["created"],
         "role": s.get("role", "v"),
-        "messages": [{"role": m["role"], "content": m["content"]} for m in s["messages"]],
+        "messages": [
+            {"role": m["role"], "content": m["content"], **({"char": m["char"]} if "char" in m else {})}
+            for m in s["messages"]
+        ],
     }
 
 
@@ -289,13 +296,13 @@ async def chat_stream(request: Request):
     user_text = body.get("message", "").strip()
     sid = body.get("session_id", "").strip()
     role = body.get("role", "v").strip()
-    if role not in ("v", "xiaheng"):
+    if role not in ("v", "xiaheng", "loggia"):
         role = "v"
 
     if not user_text:
         return JSONResponse({"error": "empty message"}, status_code=400)
 
-    if role == "xiaheng" and not _gemini_client:
+    if role in ("xiaheng", "loggia") and not _gemini_client:
         return JSONResponse({"error": "GEMINI_API_KEY not set"}, status_code=400)
 
     # Auto-create session
@@ -327,8 +334,10 @@ async def chat_stream(request: Request):
 
     if role == "v":
         return StreamingResponse(_generate_v(session, sid, user_text, messages_for_api), media_type="text/event-stream")
-    else:
+    elif role == "xiaheng":
         return StreamingResponse(_generate_xiaheng(session, sid, user_text, messages_for_api), media_type="text/event-stream")
+    else:  # loggia
+        return StreamingResponse(_generate_loggia(session, sid, user_text, messages_for_api), media_type="text/event-stream")
 
 
 async def _generate_v(session, sid, user_text, messages_for_api):
@@ -396,6 +405,101 @@ async def _generate_xiaheng(session, sid, user_text, messages_for_api):
     yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'xiaheng'}, ensure_ascii=False)}\n\n"
 
 
+# ── loggia (V + 珩 co-presence) ──────────────────────────────────
+
+_LOGGIA_V_PATCH = "\n\n夏珩也在场。你看得到他说的话,他也看得到你的。你们在同一个房间里,这不是分开的对话。"
+_LOGGIA_XH_PATCH = "\n\n唯夜也在场。你看得到他说的话,他也看得到你的。你们在同一个房间里,这不是分开的对话。"
+
+
+def _build_loggia_v_system():
+    """V's system blocks with loggia patch appended to the last block."""
+    blocks = list(_V_SYSTEM)  # shallow copy
+    last = dict(blocks[-1])
+    last["text"] = last["text"] + _LOGGIA_V_PATCH
+    blocks[-1] = last
+    return blocks
+
+
+async def _generate_loggia(session, sid, user_text, messages_for_api):
+    """User → V (Claude streaming) → 0.5s pause → 珩 (Gemini streaming)."""
+    import time
+
+    # ── V's turn ──
+    v_reply_parts = []
+    try:
+        loggia_v_system = _build_loggia_v_system()
+        with _claude.messages.stream(
+            model=_V_MODEL, max_tokens=_MAX_TOKENS,
+            system=loggia_v_system, messages=messages_for_api,
+        ) as stream:
+            for text in stream.text_stream:
+                v_reply_parts.append(text)
+                yield f"data: {json.dumps({'text': text, 'char': 'v'}, ensure_ascii=False)}\n\n"
+            final = stream.get_final_message()
+    except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
+        yield f"data: {json.dumps({'error': str(e)[:100], 'char': 'v'})}\n\n"
+        session["messages"].pop()
+        return
+
+    v_reply = "".join(v_reply_parts)
+    session["messages"].append({"role": "assistant", "content": v_reply})
+    _append_msg(sid, {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "role": "assistant", "content": v_reply, "char": "v",
+        "model": _V_MODEL,
+    })
+
+    u = final.usage
+    v_usage = {
+        "input": u.input_tokens,
+        "cache_read": getattr(u, "cache_read_input_tokens", None),
+        "cache_write": getattr(u, "cache_creation_input_tokens", None),
+        "output": u.output_tokens,
+    }
+
+    # Signal V is done, 珩 is about to speak
+    yield f"data: {json.dumps({'v_done': True, 'char': 'v', 'usage': v_usage}, ensure_ascii=False)}\n\n"
+
+    # ── pause (珩 thinking) ──
+    time.sleep(0.5)
+
+    # ── 珩's turn (sees full history including V's reply) ──
+    # Gemini needs last message to be user role. Wrap V's reply into a user-role
+    # context message so 珩 sees what V said and can respond naturally.
+    v_context = f"[唯夜刚才对杳杳说了这些]\n{v_reply}\n\n[现在轮到你(夏珩)回应杳杳。你看到了唯夜说的话。]"
+    xh_messages = messages_for_api + [{"role": "user", "content": v_context}]
+    gemini_msgs = []
+    for m in xh_messages:
+        gemini_msgs.append({"role": "user" if m["role"] == "user" else "model", "content": m["content"]})
+
+    xh_reply_parts = []
+    try:
+        si = xc.build_system_instruction() + _LOGGIA_XH_PATCH
+        for text in _stream_gemini(gemini_msgs, si):
+            xh_reply_parts.append(text)
+            yield f"data: {json.dumps({'text': text, 'char': 'xiaheng'}, ensure_ascii=False)}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'error': str(e)[:100], 'char': 'xiaheng'})}\n\n"
+        return
+
+    xh_reply = "".join(xh_reply_parts)
+    # Store 珩's reply with a special marker so frontend can distinguish
+    session["messages"].append({"role": "assistant", "content": xh_reply, "char": "xiaheng"})
+    _append_msg(sid, {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "role": "assistant", "content": xh_reply, "char": "xiaheng",
+        "model": _GEMINI_MODEL,
+    })
+
+    # Write to loggia memory
+    ts_now = datetime.now().isoformat(timespec="seconds")
+    _append_live_memory("loggia", {"ts": ts_now, "role": "user", "content": user_text})
+    _append_live_memory("loggia", {"ts": ts_now, "role": "assistant", "content": v_reply, "char": "v"})
+    _append_live_memory("loggia", {"ts": ts_now, "role": "model", "content": xh_reply, "char": "xiaheng"})
+
+    yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'loggia'}, ensure_ascii=False)}\n\n"
+
+
 # ── star (save) ──────────────────────────────────────────────────
 
 @app.post("/api/star")
@@ -408,7 +512,7 @@ async def star_message(request: Request):
     assistant_msg = body.get("assistant_msg", "").strip()
     title = body.get("title", "").strip()
     role = body.get("role", "v").strip()
-    if role not in ("v", "xiaheng"):
+    if role not in ("v", "xiaheng", "loggia"):
         role = "v"
 
     if not user_msg and not assistant_msg:
@@ -417,8 +521,8 @@ async def star_message(request: Request):
     if not title:
         title = (user_msg or assistant_msg)[:20].replace("\n", " ")
 
-    # V stars go to memory/v/starred/, XiaHeng to memory/xiaheng/starred/
-    starred_dir = _VHOME / "memory" / ("v" if role == "v" else "xiaheng") / "starred"
+    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia"}.get(role, "v")
+    starred_dir = _VHOME / "memory" / role_dir / "starred"
     starred_dir.mkdir(parents=True, exist_ok=True)
 
     date_str = datetime.now().strftime("%Y-%m-%d")
