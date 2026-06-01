@@ -254,6 +254,38 @@ header .sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; letter-s
 }
 #save-toast.show { opacity: 1; }
 
+/* ── role switcher ── */
+.role-switch {
+  display: flex; justify-content: center; gap: 20px;
+  padding: 16px 16px 12px; border-bottom: 1px solid var(--border);
+}
+.role-avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 600; cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.2s, opacity 0.2s;
+  opacity: 0.5;
+}
+.role-avatar.active { opacity: 1; }
+.role-avatar.v { background: rgba(90, 70, 140, 0.3); color: var(--gold); }
+.role-avatar.v.active { border-color: var(--accent); }
+.role-avatar.xiaheng { background: rgba(91, 123, 122, 0.3); color: #9cbcbb; }
+.role-avatar.xiaheng.active { border-color: #5B7B7A; }
+
+/* ── xiaheng theme overrides ── */
+body.role-xiaheng header { border-bottom-color: #3a5554; }
+body.role-xiaheng header h1 { color: #7aadab; }
+body.role-xiaheng header .sub { color: #5B7B7A; }
+body.role-xiaheng .msg.assistant {
+  background: rgba(30, 45, 44, 0.85);
+  border-color: rgba(91, 123, 122, 0.3);
+}
+body.role-xiaheng .msg.assistant.streaming { border-color: #5B7B7A; }
+body.role-xiaheng #input-area textarea:focus { border-color: #5B7B7A; }
+body.role-xiaheng #input-area button { background: #3a5554; }
+body.role-xiaheng .typing-dot { background: #7aadab; }
+
 /* ── responsive ── */
 @media (max-width: 480px) {
   .msg { max-width: 92%; font-size: 14px; }
@@ -274,8 +306,12 @@ header .sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; letter-s
 <!-- Sidebar -->
 <div id="sidebar-overlay" onclick="toggleSidebar(false)"></div>
 <div id="sidebar">
+  <div class="role-switch">
+    <div class="role-avatar v active" onclick="switchRole('v')" title="唯夜">V</div>
+    <div class="role-avatar xiaheng" onclick="switchRole('xiaheng')" title="夏珩">珩</div>
+  </div>
   <div class="sb-header">
-    <span>对话</span>
+    <span id="sb-title">对话</span>
     <button class="new-btn" onclick="newSession()">+ 新对话</button>
   </div>
   <div id="session-list"></div>
@@ -320,6 +356,12 @@ const $ = id => document.getElementById(id);
 const chat = $('chat'), input = $('input'), btn = $('send');
 let streaming = false;
 let currentSessionId = null;
+let currentRole = 'v'; // 'v' or 'xiaheng'
+
+const ROLE_CONFIG = {
+  v:       { name: 'V', sub: '天鹅星域', placeholder: '想对他说什么...', who: 'V' },
+  xiaheng: { name: 'SCove', sub: '珩哥在', placeholder: '想对珩哥说什么...', who: '珩' },
+};
 
 // ── PWA ──
 if ('serviceWorker' in navigator) {
@@ -359,7 +401,7 @@ async function checkAuth() {
 // ── session management ──
 async function loadSessions() {
   try {
-    const r = await fetch('/api/sessions');
+    const r = await fetch('/api/sessions?role=' + currentRole);
     if (!r.ok) return [];
     return await r.json();
   } catch { return []; }
@@ -394,7 +436,11 @@ async function refreshSessions() {
 }
 
 async function newSession() {
-  const r = await fetch('/api/sessions', { method: 'POST' });
+  const r = await fetch('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: currentRole }),
+  });
   const s = await r.json();
   currentSessionId = s.id;
   chat.innerHTML = '';
@@ -431,7 +477,31 @@ function switchTab(tab) {
   event.currentTarget.classList.add('active');
   if (tab === 'chat') { /* already on chat */ }
   else if (tab === 'memory') { toggleSidebar(true); }
-  else if (tab === 'settings') { /* Phase 2+ */ }
+  else if (tab === 'settings') { /* future */ }
+}
+
+// ── role switching ──
+function switchRole(role) {
+  currentRole = role;
+  currentSessionId = null;
+  chat.innerHTML = '';
+
+  // Update avatars
+  document.querySelectorAll('.role-avatar').forEach(a => a.classList.remove('active'));
+  document.querySelector(`.role-avatar.${role}`).classList.add('active');
+
+  // Theme
+  document.body.classList.toggle('role-xiaheng', role === 'xiaheng');
+
+  // Header text
+  const cfg = ROLE_CONFIG[role];
+  document.querySelector('header h1').textContent = cfg.name === 'SCove' ? 'SCove' : 'SCove';
+  document.querySelector('header .sub').textContent = cfg.sub;
+  input.placeholder = cfg.placeholder;
+
+  // Refresh session list for this role
+  refreshSessions();
+  toggleSidebar(false);
 }
 
 // ── chat ──
@@ -494,7 +564,7 @@ async function savePair(userMsg, assistantMsg, btnEl) {
     const r = await fetch('/api/star', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_msg: userMsg, assistant_msg: assistantMsg }),
+      body: JSON.stringify({ user_msg: userMsg, assistant_msg: assistantMsg, role: currentRole }),
     });
     if (r.ok) {
       showToast('已记住');
@@ -532,7 +602,7 @@ async function send() {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, session_id: currentSessionId || '' }),
+      body: JSON.stringify({ message: text, session_id: currentSessionId || '', role: currentRole }),
     });
 
     typingEl.remove();
