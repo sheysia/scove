@@ -420,9 +420,14 @@ def _build_loggia_v_system():
     return blocks
 
 
-async def _generate_loggia(session, sid, user_text, messages_for_api):
-    """User → V (Claude streaming) → 0.5s pause → 珩 (Gemini streaming)."""
-    import asyncio
+def _generate_loggia(session, sid, user_text, messages_for_api):
+    """User → V (Claude streaming) → 0.5s pause → 珩 (Gemini streaming).
+
+    Regular (sync) generator, not async. StreamingResponse runs it in a
+    threadpool, so sync blocking calls (Claude, Gemini, time.sleep) work
+    correctly and chunks flush to the browser in real time.
+    """
+    import time
 
     # ── V's turn ──
     v_reply_parts = []
@@ -457,15 +462,12 @@ async def _generate_loggia(session, sid, user_text, messages_for_api):
         "output": u.output_tokens,
     }
 
-    # Signal V is done, 珩 is about to speak
     yield f"data: {json.dumps({'v_done': True, 'char': 'v', 'usage': v_usage}, ensure_ascii=False)}\n\n"
 
     # ── pause (珩 thinking) ──
-    await asyncio.sleep(0.5)
+    time.sleep(0.5)
 
-    # ── 珩's turn (sees full history including V's reply) ──
-    # Gemini needs last message to be user role. Wrap V's reply into a user-role
-    # context message so 珩 sees what V said and can respond naturally.
+    # ── 珩's turn ──
     v_context = f"[唯夜刚才对杳杳说了这些]\n{v_reply}\n\n[现在轮到你(夏珩)回应杳杳。你看到了唯夜说的话。]"
     xh_messages = messages_for_api + [{"role": "user", "content": v_context}]
     gemini_msgs = []
@@ -483,7 +485,6 @@ async def _generate_loggia(session, sid, user_text, messages_for_api):
         return
 
     xh_reply = "".join(xh_reply_parts)
-    # Store 珩's reply with a special marker so frontend can distinguish
     session["messages"].append({"role": "assistant", "content": xh_reply, "char": "xiaheng"})
     _append_msg(sid, {
         "ts": datetime.now().isoformat(timespec="seconds"),
@@ -491,7 +492,6 @@ async def _generate_loggia(session, sid, user_text, messages_for_api):
         "model": _GEMINI_MODEL,
     })
 
-    # Write to loggia memory
     ts_now = datetime.now().isoformat(timespec="seconds")
     _append_live_memory("loggia", {"ts": ts_now, "role": "user", "content": user_text})
     _append_live_memory("loggia", {"ts": ts_now, "role": "assistant", "content": v_reply, "char": "v"})
