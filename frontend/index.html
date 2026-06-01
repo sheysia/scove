@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SCove">
@@ -57,23 +57,63 @@ body::before {
 }
 body > * { position: relative; z-index: 1; }
 
-/* ── PIN overlay ── */
-#pin-overlay {
-  position: fixed; inset: 0; z-index: 100;
-  background: var(--bg);
+/* ── splash screen ── */
+#splash {
+  position: fixed; inset: 0; z-index: 200;
   display: flex; align-items: center; justify-content: center;
-  flex-direction: column; gap: 16px;
+  overflow: hidden; cursor: pointer;
+  background: #050308;
 }
-#pin-overlay.hidden { display: none; }
-#pin-overlay h2 { color: var(--accent); font-size: 18px; font-weight: 500; letter-spacing: 0.06em; }
-#pin-overlay input {
-  width: 200px; padding: 12px 16px; text-align: center;
-  background: var(--surface); color: var(--text); border: 1px solid var(--border);
-  border-radius: 10px; font-size: 20px; letter-spacing: 0.3em;
-  outline: none; -webkit-text-security: disc;
+#splash.hidden { display: none; }
+/* Each door half is full-viewport, same background, clipped to its half */
+#splash .door-left, #splash .door-right {
+  position: absolute; top: 0; bottom: 0; left: 0; right: 0;
+  background: url('/static/splash.png') center center / cover no-repeat;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease 0.1s;
+  will-change: transform, opacity;
 }
-#pin-overlay input:focus { border-color: var(--accent); }
-#pin-overlay .err { color: #c45; font-size: 13px; min-height: 18px; }
+#splash .door-left  { clip-path: inset(0 50% 0 0); }
+#splash .door-right { clip-path: inset(0 0 0 50%); }
+#splash.opening .door-left {
+  transform: translateX(-50%);
+  opacity: 0;
+}
+#splash.opening .door-right {
+  transform: translateX(50%);
+  opacity: 0;
+}
+/* PIN on splash */
+#splash-pin {
+  position: relative; z-index: 10;
+  display: none; flex-direction: column;
+  align-items: center; gap: 12px;
+  margin-top: 25vh;
+}
+#splash-pin.show { display: flex; }
+#splash-pin .pin-dots {
+  display: flex; gap: 14px;
+}
+#splash-pin .pin-dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1.5px solid var(--gold);
+  background: transparent;
+  transition: background 0.15s;
+}
+#splash-pin .pin-dot.filled {
+  background: var(--gold);
+}
+#splash-pin .pin-err {
+  color: rgba(200, 80, 80, 0.9); font-size: 12px; min-height: 16px;
+  letter-spacing: 0.05em;
+}
+/* Hidden real input behind the dots */
+#splash-pin-input {
+  position: absolute; opacity: 0; width: 1px; height: 1px;
+  pointer-events: none;
+}
+
+/* ── old PIN overlay (removed, replaced by splash) ── */
+#pin-overlay { display: none; }
 
 /* ── header ── */
 header {
@@ -154,6 +194,8 @@ header .sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; letter-s
   max-width: 85%; padding: 10px 14px;
   border-radius: 14px; font-size: 15px; line-height: 1.7;
   white-space: pre-wrap; word-break: break-word;
+  -webkit-user-select: text; user-select: text;
+  -webkit-touch-callout: default;
 }
 .msg.user {
   align-self: flex-end;
@@ -296,11 +338,20 @@ body.role-xiaheng .typing-dot { background: #7aadab; }
 </head>
 <body>
 
-<!-- PIN overlay -->
-<div id="pin-overlay" class="hidden">
-  <h2>SCove</h2>
-  <input id="pin-input" type="tel" maxlength="8" placeholder="PIN" autofocus>
-  <div class="err" id="pin-err"></div>
+<!-- Splash screen (door) -->
+<div id="splash">
+  <div class="door-left"></div>
+  <div class="door-right"></div>
+  <div id="splash-pin">
+    <div class="pin-dots">
+      <div class="pin-dot" data-i="0"></div>
+      <div class="pin-dot" data-i="1"></div>
+      <div class="pin-dot" data-i="2"></div>
+      <div class="pin-dot" data-i="3"></div>
+    </div>
+    <div class="pin-err" id="splash-pin-err"></div>
+    <input id="splash-pin-input" type="tel" maxlength="4" inputmode="numeric" autocomplete="off">
+  </div>
 </div>
 
 <!-- Sidebar -->
@@ -360,7 +411,7 @@ let currentRole = 'v'; // 'v' or 'xiaheng'
 
 const ROLE_CONFIG = {
   v:       { name: 'V', sub: '天鹅星域', placeholder: '想对他说什么...', who: 'V' },
-  xiaheng: { name: 'SCove', sub: '珩哥在', placeholder: '想对珩哥说什么...', who: '珩' },
+  xiaheng: { name: 'SCove', sub: '珩的茶室', placeholder: '请当我是你温柔的托底', who: '珩' },
 };
 
 // ── PWA ──
@@ -368,34 +419,70 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
-// ── PIN ──
+// ── splash + PIN ──
+let splashNeedsPin = false;
+
 async function checkAuth() {
+  const splash = $('splash');
   try {
     const r = await fetch('/api/auth/status');
     const d = await r.json();
     if (d.pin_required && !d.authenticated) {
-      $('pin-overlay').classList.remove('hidden');
-      $('pin-input').focus();
-      $('pin-input').addEventListener('keydown', async e => {
-        if (e.key !== 'Enter') return;
-        const pin = $('pin-input').value;
-        const resp = await fetch('/api/auth/pin', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ pin }),
-        });
-        if (resp.ok) {
-          $('pin-overlay').classList.add('hidden');
-          init();
-        } else {
-          $('pin-err').textContent = 'PIN 不对';
-          $('pin-input').value = '';
-        }
-      });
+      splashNeedsPin = true;
+      // Tap splash → show PIN input
+      splash.addEventListener('click', onSplashTap, { once: true });
     } else {
-      init();
+      // No PIN: tap anywhere → open door
+      splash.addEventListener('click', () => openDoor(), { once: true });
     }
-  } catch { init(); }
+  } catch {
+    splash.addEventListener('click', () => openDoor(), { once: true });
+  }
+}
+
+function onSplashTap() {
+  const pinArea = $('splash-pin');
+  const pinInput = $('splash-pin-input');
+  pinArea.classList.add('show');
+  pinInput.style.pointerEvents = 'auto';
+  pinInput.focus();
+  pinInput.addEventListener('input', onPinInput);
+}
+
+async function onPinInput() {
+  const pinInput = $('splash-pin-input');
+  const val = pinInput.value.replace(/\D/g, '').slice(0, 4);
+  pinInput.value = val;
+
+  // Update dots
+  document.querySelectorAll('#splash-pin .pin-dot').forEach((dot, i) => {
+    dot.classList.toggle('filled', i < val.length);
+  });
+
+  if (val.length === 4) {
+    const resp = await fetch('/api/auth/pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: val }),
+    });
+    if (resp.ok) {
+      openDoor();
+    } else {
+      $('splash-pin-err').textContent = '不对';
+      pinInput.value = '';
+      document.querySelectorAll('#splash-pin .pin-dot').forEach(d => d.classList.remove('filled'));
+      setTimeout(() => { $('splash-pin-err').textContent = ''; }, 1500);
+    }
+  }
+}
+
+function openDoor() {
+  const splash = $('splash');
+  splash.classList.add('opening');
+  setTimeout(() => {
+    splash.classList.add('hidden');
+    init();
+  }, 650);
 }
 
 // ── session management ──

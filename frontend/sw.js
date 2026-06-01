@@ -2,13 +2,14 @@
 // Caches the app shell (HTML, icons, manifest) so the PWA loads instantly.
 // API calls are never cached (they need live Claude responses).
 
-const CACHE = 'scove-shell-v2';
+const CACHE = 'scove-shell-v3';
 const SHELL = [
   '/',
   '/static/manifest.json',
   '/static/icon-192.png',
   '/static/icon-512.png',
   '/static/bg-eden.png',
+  '/static/splash.png',
 ];
 
 self.addEventListener('install', e => {
