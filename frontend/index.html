@@ -640,7 +640,8 @@ async function switchSession(sid) {
       if (av) av.classList.add('active');
     }
     for (const m of data.messages) {
-      addMsg(m.role === 'user' ? 'user' : 'assistant', m.content, m.char);
+      const el = addMsg(m.role === 'user' ? 'user' : 'assistant', m.content, m.char);
+      if (m.role === 'assistant' && m.content) addStarButton(el);
     }
   } catch {}
   refreshSessions();
@@ -724,18 +725,23 @@ function addMsg(role, text, charKey) {
 
   wrap.appendChild(el);
 
-  // Star button on assistant messages
-  if (role === 'assistant' && text) {
-    const star = document.createElement('button');
-    star.className = 'star-btn';
-    star.textContent = '☆ 记一下';
-    star.onclick = () => savePair(lastUserText, el.textContent, star);
-    wrap.appendChild(star);
+  // Star button on assistant messages (added after content exists)
+  if (role === 'assistant') {
+    el._wrap = wrap; // ref for adding star later
   }
 
   chat.appendChild(wrap);
   chat.scrollTop = chat.scrollHeight;
   return el;
+}
+
+function addStarButton(msgEl) {
+  if (!msgEl || !msgEl._wrap) return;
+  const star = document.createElement('button');
+  star.className = 'star-btn';
+  star.textContent = '☆ 记一下';
+  star.onclick = () => savePair(lastUserText, msgEl.textContent, star);
+  msgEl._wrap.appendChild(star);
 }
 
 function addTyping() {
@@ -890,8 +896,7 @@ async function send() {
             chat.scrollTop = chat.scrollHeight;
           }
           if (data.v_done && currentRole === 'loggia') {
-            // V finished, 珩 about to speak: finalize V bubble
-            if (msgEl) msgEl.classList.remove('streaming');
+            if (msgEl) { msgEl.classList.remove('streaming'); addStarButton(msgEl); }
             msgEl = null;
           }
           if (data.done) {
@@ -909,6 +914,7 @@ async function send() {
     if (msgEl) {
       msgEl.classList.remove('streaming');
       lastAssistantText = msgEl.textContent;
+      addStarButton(msgEl);
     }
   } catch (err) {
     typingEl?.remove();
