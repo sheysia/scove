@@ -36,6 +36,7 @@ from fastapi.staticfiles import StaticFiles
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import context_builder as cb
 import xiaheng_context as xc
+import cc_context as cc
 
 # ── bootstrap ────────────────────────────────────────────────────
 
@@ -65,6 +66,9 @@ _gemini_client = None
 if _GEMINI_KEY:
     from google import genai
     _gemini_client = genai.Client(api_key=_GEMINI_KEY)
+
+# CC (Claude, same model as V, different prompt)
+_CC_SYSTEM = cc.build_system(now=_SESSION_NOW)
 
 _PIN_HASH = hashlib.sha256(_PIN.encode()).hexdigest() if _PIN else ""
 
@@ -102,7 +106,7 @@ def _append_msg(sid: str, record: dict) -> None:
 
 
 def _live_memory_path(role: str) -> Path:
-    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia"}.get(role, "v")
+    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia", "cc": "cc"}.get(role, "v")
     d = _VHOME / "memory" / role_dir
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{datetime.now().strftime('%Y-%m-%d')}.jsonl"
@@ -243,7 +247,7 @@ async def create_session(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     body = await request.json()
     role = body.get("role", "v").strip()
-    if role not in ("v", "xiaheng", "loggia"):
+    if role not in ("v", "xiaheng", "loggia", "cc"):
         role = "v"
     sid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
     s = {
@@ -296,7 +300,7 @@ async def chat_stream(request: Request):
     user_text = body.get("message", "").strip()
     sid = body.get("session_id", "").strip()
     role = body.get("role", "v").strip()
-    if role not in ("v", "xiaheng", "loggia"):
+    if role not in ("v", "xiaheng", "loggia", "cc"):
         role = "v"
 
     if not user_text:
@@ -336,6 +340,8 @@ async def chat_stream(request: Request):
         return StreamingResponse(_generate_v(session, sid, user_text, messages_for_api), media_type="text/event-stream")
     elif role == "xiaheng":
         return StreamingResponse(_generate_xiaheng(session, sid, user_text, messages_for_api), media_type="text/event-stream")
+    elif role == "cc":
+        return StreamingResponse(_generate_cc(session, sid, user_text, messages_for_api), media_type="text/event-stream")
     else:  # loggia
         return StreamingResponse(_generate_loggia(session, sid, user_text, messages_for_api), media_type="text/event-stream")
 
@@ -376,6 +382,45 @@ async def _generate_v(session, sid, user_text, messages_for_api):
     _append_live_memory("v", {"ts": ts_now, "role": "assistant", "content": reply})
 
     yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'v', 'usage': usage}, ensure_ascii=False)}\n\n"
+
+
+async def _generate_cc(session, sid, user_text, messages_for_api):
+    """CC/予忱: Claude API with cc_nexus.md prompt + ~/V soul."""
+    reply_parts = []
+    try:
+        with _claude.messages.stream(
+            model=_V_MODEL, max_tokens=_MAX_TOKENS,
+            system=_CC_SYSTEM, messages=messages_for_api,
+        ) as stream:
+            for text in stream.text_stream:
+                reply_parts.append(text)
+                yield f"data: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
+            final = stream.get_final_message()
+    except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
+        yield f"data: {json.dumps({'error': str(e)[:100]})}\n\n"
+        session["messages"].pop()
+        return
+
+    reply = "".join(reply_parts)
+    session["messages"].append({"role": "assistant", "content": reply})
+
+    u = final.usage
+    usage = {
+        "input": u.input_tokens,
+        "cache_read": getattr(u, "cache_read_input_tokens", None),
+        "cache_write": getattr(u, "cache_creation_input_tokens", None),
+        "output": u.output_tokens,
+    }
+    _append_msg(sid, {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "role": "assistant", "content": reply, "char": "cc",
+        "model": _V_MODEL, "usage": usage,
+    })
+    ts_now = datetime.now().isoformat(timespec="seconds")
+    _append_live_memory("cc", {"ts": ts_now, "role": "user", "content": user_text})
+    _append_live_memory("cc", {"ts": ts_now, "role": "assistant", "content": reply})
+
+    yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'cc', 'usage': usage}, ensure_ascii=False)}\n\n"
 
 
 async def _generate_xiaheng(session, sid, user_text, messages_for_api):
@@ -512,7 +557,7 @@ async def star_message(request: Request):
     assistant_msg = body.get("assistant_msg", "").strip()
     title = body.get("title", "").strip()
     role = body.get("role", "v").strip()
-    if role not in ("v", "xiaheng", "loggia"):
+    if role not in ("v", "xiaheng", "loggia", "cc"):
         role = "v"
 
     if not user_msg and not assistant_msg:
@@ -521,7 +566,7 @@ async def star_message(request: Request):
     if not title:
         title = (user_msg or assistant_msg)[:20].replace("\n", " ")
 
-    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia"}.get(role, "v")
+    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia", "cc": "cc"}.get(role, "v")
     starred_dir = _VHOME / "memory" / role_dir / "starred"
     starred_dir.mkdir(parents=True, exist_ok=True)
 
