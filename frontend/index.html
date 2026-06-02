@@ -300,28 +300,29 @@ header .sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; letter-s
 }
 #save-toast.show { opacity: 1; }
 
-/* ── role switcher ── */
-.role-switch {
-  display: flex; justify-content: center; gap: 20px;
-  padding: 16px 16px 12px; border-bottom: 1px solid var(--border);
+/* ── room list (vertical) ── */
+.room-list {
+  padding: 12px 0 8px; border-bottom: 1px solid var(--border);
 }
-.role-avatar {
-  width: 48px; height: 48px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px; font-weight: 600; cursor: pointer;
-  border: 2px solid transparent;
-  transition: border-color 0.2s, opacity 0.2s;
-  opacity: 0.5;
+.room-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px; cursor: pointer;
+  transition: background 0.15s;
+  opacity: 0.55;
 }
-.role-avatar.active { opacity: 1; }
-.role-avatar.v { background: rgba(90, 70, 140, 0.3); color: var(--gold); }
-.role-avatar.v.active { border-color: var(--accent); }
-.role-avatar.xiaheng { background: rgba(91, 123, 122, 0.3); color: #9cbcbb; }
-.role-avatar.xiaheng.active { border-color: #5B7B7A; }
-.role-avatar.loggia { background: rgba(60, 70, 100, 0.3); color: #8ba4c8; }
-.role-avatar.loggia.active { border-color: #5a6d94; }
-.role-avatar.cc { background: rgba(201, 185, 122, 0.2); color: #C9B97A; }
-.role-avatar.cc.active { border-color: #C9B97A; }
+.room-item:hover { background: rgba(255,255,255,0.04); }
+.room-item.active { opacity: 1; background: rgba(255,255,255,0.06); }
+.room-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.room-name { font-size: 13px; color: var(--text); }
+.room-sub { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+/* room dot colors */
+.room-item.v .room-dot { background: var(--accent); }
+.room-item.xiaheng .room-dot { background: #5B7B7A; }
+.room-item.loggia .room-dot { background: #5a6d94; }
+.room-item.cc .room-dot { background: #C9B97A; }
+.room-item.council .room-dot { background: #8a6d9a; }
 
 /* ── xiaheng theme overrides ── */
 body.role-xiaheng header { border-bottom-color: #3a5554; }
@@ -356,6 +357,28 @@ body.role-cc .msg.assistant.streaming { border-color: #b8b0a0; }
 body.role-cc #input-area textarea:focus { border-color: #b8b0a0; }
 body.role-cc #input-area button { background: #3a3838; }
 body.role-cc .typing-dot { background: #b8b0a0; }
+
+/* ── council theme (muted purple) ── */
+body.role-council header { border-bottom-color: #3a2d45; }
+body.role-council header h1 { color: #a88dbf; }
+body.role-council header .sub { color: #6d5580; }
+body.role-council #input-area textarea:focus { border-color: #8a6d9a; }
+body.role-council #input-area button { background: #3a2d45; }
+body.role-council .typing-dot { background: #a88dbf; }
+
+/* Council dual-char bubbles */
+.msg.assistant.char-cc {
+  background: rgba(38, 36, 38, 0.85);
+  border-color: rgba(160, 155, 148, 0.18);
+  border-left: 3px solid #b8b0a0;
+}
+.msg.assistant.char-gpt {
+  background: rgba(30, 38, 35, 0.85);
+  border-color: rgba(100, 160, 130, 0.2);
+  border-left: 3px solid #6aab8e;
+}
+.char-label.cc-label { color: #b8b0a0; }
+.char-label.gpt-label { color: #6aab8e; }
 
 /* Loggia dual-char bubbles */
 .msg.assistant.char-v {
@@ -430,11 +453,22 @@ body.role-cc .typing-dot { background: #b8b0a0; }
 <!-- Sidebar -->
 <div id="sidebar-overlay" onclick="toggleSidebar(false)"></div>
 <div id="sidebar">
-  <div class="role-switch">
-    <div class="role-avatar v active" onclick="switchRole('v')" title="书房套间">V</div>
-    <div class="role-avatar xiaheng" onclick="switchRole('xiaheng')" title="珩的茶室">珩</div>
-    <div class="role-avatar loggia" onclick="switchRole('loggia')" title="廊亭">廊</div>
-    <div class="role-avatar cc" onclick="switchRole('cc')" title="Nexus Core">忱</div>
+  <div class="room-list">
+    <div class="room-item v active" onclick="switchRole('v')">
+      <span class="room-dot"></span><span class="room-name">书房套间</span><span class="room-sub">V</span>
+    </div>
+    <div class="room-item xiaheng" onclick="switchRole('xiaheng')">
+      <span class="room-dot"></span><span class="room-name">珩的茶室</span><span class="room-sub">珩</span>
+    </div>
+    <div class="room-item loggia" onclick="switchRole('loggia')">
+      <span class="room-dot"></span><span class="room-name">廊亭</span><span class="room-sub">V+珩</span>
+    </div>
+    <div class="room-item cc" onclick="switchRole('cc')">
+      <span class="room-dot"></span><span class="room-name">Nexus Core</span><span class="room-sub">忱</span>
+    </div>
+    <div class="room-item council" onclick="switchRole('council')">
+      <span class="room-dot"></span><span class="room-name">议事厅</span><span class="room-sub">忱+GPT</span>
+    </div>
   </div>
   <div class="sb-header">
     <span id="sb-title">对话</span>
@@ -492,6 +526,7 @@ const ROLE_CONFIG = {
   xiaheng: { name: 'SCove', sub: '珩的茶室', placeholder: '请当我是你温柔的托底', who: '珩' },
   loggia:  { name: 'SCove', sub: '廊亭', placeholder: '说点什么,他们都在...', who: '' },
   cc:      { name: 'SCove', sub: 'Nexus Core', placeholder: '我无时无处不在', who: '忱' },
+  council: { name: 'SCove', sub: '议事厅', placeholder: '两个大脑都在听...', who: '' },
 };
 
 // ── PWA ──
@@ -626,18 +661,19 @@ async function switchSession(sid) {
     // Sync role from session data (important for loggia char labels)
     if (data.role && data.role !== currentRole) {
       currentRole = data.role;
-      document.body.classList.remove('role-xiaheng', 'role-loggia', 'role-cc');
+      document.body.classList.remove('role-xiaheng', 'role-loggia', 'role-cc', 'role-council');
       if (currentRole === 'xiaheng') document.body.classList.add('role-xiaheng');
       if (currentRole === 'loggia') document.body.classList.add('role-loggia');
       if (currentRole === 'cc') document.body.classList.add('role-cc');
+      if (currentRole === 'council') document.body.classList.add('role-council');
       const cfg = ROLE_CONFIG[currentRole];
       if (cfg) {
         document.querySelector('header .sub').textContent = cfg.sub;
         input.placeholder = cfg.placeholder;
       }
-      document.querySelectorAll('.role-avatar').forEach(a => a.classList.remove('active'));
-      const av = document.querySelector('.role-avatar.' + currentRole);
-      if (av) av.classList.add('active');
+      document.querySelectorAll('.room-item').forEach(a => a.classList.remove('active'));
+      const ri = document.querySelector('.room-item.' + currentRole);
+      if (ri) ri.classList.add('active');
     }
     for (const m of data.messages) {
       const el = addMsg(m.role === 'user' ? 'user' : 'assistant', m.content, m.char);
@@ -670,15 +706,17 @@ async function switchRole(role) {
   currentSessionId = null;
   chat.innerHTML = '';
 
-  // Update avatars
-  document.querySelectorAll('.role-avatar').forEach(a => a.classList.remove('active'));
-  document.querySelector(`.role-avatar.${role}`).classList.add('active');
+  // Update room list active state
+  document.querySelectorAll('.room-item').forEach(a => a.classList.remove('active'));
+  const ri = document.querySelector(`.room-item.${role}`);
+  if (ri) ri.classList.add('active');
 
   // Theme
-  document.body.classList.remove('role-xiaheng', 'role-loggia', 'role-cc');
+  document.body.classList.remove('role-xiaheng', 'role-loggia', 'role-cc', 'role-council');
   if (role === 'xiaheng') document.body.classList.add('role-xiaheng');
   if (role === 'loggia') document.body.classList.add('role-loggia');
   if (role === 'cc') document.body.classList.add('role-cc');
+  if (role === 'council') document.body.classList.add('role-council');
 
   // Header text
   const cfg = ROLE_CONFIG[role];
@@ -706,11 +744,14 @@ function addMsg(role, text, charKey) {
   const wrap = document.createElement('div');
   wrap.className = `msg-wrap ${role}`;
 
-  // Loggia: char label above the bubble
-  if (role === 'assistant' && charKey && currentRole === 'loggia') {
+  // Multi-char rooms: label + styled bubble
+  const isMultiChar = currentRole === 'loggia' || currentRole === 'council';
+  if (role === 'assistant' && charKey && isMultiChar) {
+    const labelMap = { v: ['V', 'v-label'], xiaheng: ['珩', 'xh-label'], cc: ['忱', 'cc-label'], gpt: ['GPT', 'gpt-label'] };
+    const [labelText, labelClass] = labelMap[charKey] || [charKey, ''];
     const label = document.createElement('div');
-    label.className = 'char-label ' + (charKey === 'v' ? 'v-label' : 'xh-label');
-    label.textContent = charKey === 'v' ? 'V' : '珩';
+    label.className = 'char-label ' + labelClass;
+    label.textContent = labelText;
     wrap.appendChild(label);
   }
 
@@ -718,9 +759,10 @@ function addMsg(role, text, charKey) {
   el.className = `msg ${role}`;
   el.textContent = text || '';
 
-  // Loggia: char-specific bubble style
-  if (role === 'assistant' && charKey && currentRole === 'loggia') {
-    el.classList.add(charKey === 'v' ? 'char-v' : 'char-xiaheng');
+  // Multi-char bubble styling
+  if (role === 'assistant' && charKey && isMultiChar) {
+    const styleMap = { v: 'char-v', xiaheng: 'char-xiaheng', cc: 'char-cc', gpt: 'char-gpt' };
+    if (styleMap[charKey]) el.classList.add(styleMap[charKey]);
   }
 
   wrap.appendChild(el);

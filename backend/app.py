@@ -67,8 +67,26 @@ if _GEMINI_KEY:
     from google import genai
     _gemini_client = genai.Client(api_key=_GEMINI_KEY)
 
+# OpenAI (Council GPT side)
+_OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+_OPENAI_MODEL = os.environ.get("OPENAI_CHAT_MODEL", "gpt-4o").strip()
+_openai_client = None
+
+if _OPENAI_KEY:
+    from openai import OpenAI
+    _openai_client = OpenAI(api_key=_OPENAI_KEY)
+
 # CC (Claude, same model as V, different prompt)
 _CC_SYSTEM = cc.build_system(now=_SESSION_NOW)
+
+# Council GPT system prompt
+_COUNCIL_GPT_PROMPT = ""
+_council_gpt_path = _VHOME / "prompts" / "council_gpt.md"
+if _council_gpt_path.is_file():
+    _COUNCIL_GPT_PROMPT = _council_gpt_path.read_text(encoding="utf-8").strip()
+
+_COUNCIL_CC_PATCH = "\n\n你现在在议事厅。GPT 也在场,你看得到他说的话,他也看得到你的。你们是同一张桌子上的两个人,不是对手。"
+_COUNCIL_GPT_PATCH = "\n\n予忱(CC,Claude)也在场。你看得到他说的话,他也看得到你的。"
 
 _PIN_HASH = hashlib.sha256(_PIN.encode()).hexdigest() if _PIN else ""
 
@@ -106,7 +124,7 @@ def _append_msg(sid: str, record: dict) -> None:
 
 
 def _live_memory_path(role: str) -> Path:
-    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia", "cc": "cc"}.get(role, "v")
+    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia", "cc": "cc", "council": "council"}.get(role, "v")
     d = _VHOME / "memory" / role_dir
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{datetime.now().strftime('%Y-%m-%d')}.jsonl"
@@ -254,7 +272,7 @@ async def create_session(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     body = await request.json()
     role = body.get("role", "v").strip()
-    if role not in ("v", "xiaheng", "loggia", "cc"):
+    if role not in ("v", "xiaheng", "loggia", "cc", "council"):
         role = "v"
     sid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
     s = {
@@ -308,7 +326,7 @@ async def chat_stream(request: Request):
     sid = body.get("session_id", "").strip()
     role = body.get("role", "v").strip()
     image = body.get("image")  # {data: base64, mime: 'image/jpeg'} or None
-    if role not in ("v", "xiaheng", "loggia", "cc"):
+    if role not in ("v", "xiaheng", "loggia", "cc", "council"):
         role = "v"
 
     if not user_text and not image:
@@ -316,6 +334,8 @@ async def chat_stream(request: Request):
 
     if role in ("xiaheng", "loggia") and not _gemini_client:
         return JSONResponse({"error": "GEMINI_API_KEY not set"}, status_code=400)
+    if role == "council" and not _openai_client:
+        return JSONResponse({"error": "OPENAI_API_KEY not set"}, status_code=400)
 
     # Auto-create session
     if not sid or sid not in _sessions:
@@ -370,6 +390,8 @@ async def chat_stream(request: Request):
         return StreamingResponse(_generate_xiaheng(session, sid, user_text, messages_for_api, image), media_type="text/event-stream")
     elif role == "cc":
         return StreamingResponse(_generate_cc(session, sid, user_text, messages_for_api), media_type="text/event-stream")
+    elif role == "council":
+        return StreamingResponse(_generate_council(session, sid, user_text, messages_for_api), media_type="text/event-stream")
     else:  # loggia
         return StreamingResponse(_generate_loggia(session, sid, user_text, messages_for_api, image), media_type="text/event-stream")
 
@@ -449,6 +471,103 @@ async def _generate_cc(session, sid, user_text, messages_for_api):
     _append_live_memory("cc", {"ts": ts_now, "role": "assistant", "content": reply})
 
     yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'cc', 'usage': usage}, ensure_ascii=False)}\n\n"
+
+
+# ── council (CC + GPT co-presence) ───────────────────────────────
+
+def _stream_openai(messages: list[dict], system_prompt: str):
+    """Yield text chunks from OpenAI streaming."""
+    oai_messages = [{"role": "system", "content": system_prompt}]
+    for m in messages:
+        oai_messages.append({"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else "(内容)"})
+    stream = _openai_client.chat.completions.create(
+        model=_OPENAI_MODEL,
+        messages=oai_messages,
+        max_tokens=_MAX_TOKENS,
+        stream=True,
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta and delta.content:
+            yield delta.content
+
+
+def _generate_council(session, sid, user_text, messages_for_api):
+    """User → CC/予忱 (Claude) → 0.5s pause → GPT (OpenAI) sequential.
+
+    Sync generator (same pattern as loggia).
+    """
+    import time
+
+    # ── CC's turn (Claude with council patch) ──
+    cc_system = list(_CC_SYSTEM)
+    last = dict(cc_system[-1])
+    last["text"] = last["text"] + _COUNCIL_CC_PATCH
+    cc_system[-1] = last
+
+    cc_reply_parts = []
+    try:
+        with _claude.messages.stream(
+            model=_V_MODEL, max_tokens=_MAX_TOKENS,
+            system=cc_system, messages=messages_for_api,
+        ) as stream:
+            for text in stream.text_stream:
+                cc_reply_parts.append(text)
+                yield f"data: {json.dumps({'text': text, 'char': 'cc'}, ensure_ascii=False)}\n\n"
+            final = stream.get_final_message()
+    except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
+        yield f"data: {json.dumps({'error': str(e)[:100], 'char': 'cc'})}\n\n"
+        session["messages"].pop()
+        return
+
+    cc_reply = "".join(cc_reply_parts)
+    session["messages"].append({"role": "assistant", "content": cc_reply, "char": "cc"})
+    _append_msg(sid, {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "role": "assistant", "content": cc_reply, "char": "cc",
+        "model": _V_MODEL,
+    })
+
+    u = final.usage
+    cc_usage = {
+        "input": u.input_tokens,
+        "cache_read": getattr(u, "cache_read_input_tokens", None),
+        "cache_write": getattr(u, "cache_creation_input_tokens", None),
+        "output": u.output_tokens,
+    }
+    yield f"data: {json.dumps({'v_done': True, 'char': 'cc', 'usage': cc_usage}, ensure_ascii=False)}\n\n"
+
+    # ── pause ──
+    time.sleep(0.5)
+
+    # ── GPT's turn (sees CC's reply) ──
+    cc_context = f"[予忱(CC)刚才说了]\n{cc_reply}\n\n[现在轮到你回应。你看到了予忱说的话。]"
+    gpt_messages = messages_for_api + [{"role": "user", "content": cc_context}]
+    gpt_system = _COUNCIL_GPT_PROMPT + _COUNCIL_GPT_PATCH
+
+    gpt_reply_parts = []
+    try:
+        for text in _stream_openai(gpt_messages, gpt_system):
+            gpt_reply_parts.append(text)
+            yield f"data: {json.dumps({'text': text, 'char': 'gpt'}, ensure_ascii=False)}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'error': str(e)[:100], 'char': 'gpt'})}\n\n"
+        return
+
+    gpt_reply = "".join(gpt_reply_parts)
+    session["messages"].append({"role": "assistant", "content": gpt_reply, "char": "gpt"})
+    _append_msg(sid, {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "role": "assistant", "content": gpt_reply, "char": "gpt",
+        "model": _OPENAI_MODEL,
+    })
+
+    ts_now = datetime.now().isoformat(timespec="seconds")
+    _append_live_memory("council", {"ts": ts_now, "role": "user", "content": user_text})
+    _append_live_memory("council", {"ts": ts_now, "role": "assistant", "content": cc_reply, "char": "cc"})
+    _append_live_memory("council", {"ts": ts_now, "role": "assistant", "content": gpt_reply, "char": "gpt"})
+
+    yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'council'}, ensure_ascii=False)}\n\n"
 
 
 async def _generate_xiaheng(session, sid, user_text, messages_for_api, image=None):
@@ -585,7 +704,7 @@ async def star_message(request: Request):
     assistant_msg = body.get("assistant_msg", "").strip()
     title = body.get("title", "").strip()
     role = body.get("role", "v").strip()
-    if role not in ("v", "xiaheng", "loggia", "cc"):
+    if role not in ("v", "xiaheng", "loggia", "cc", "council"):
         role = "v"
 
     if not user_msg and not assistant_msg:
@@ -594,7 +713,7 @@ async def star_message(request: Request):
     if not title:
         title = (user_msg or assistant_msg)[:20].replace("\n", " ")
 
-    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia", "cc": "cc"}.get(role, "v")
+    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia", "cc": "cc", "council": "council"}.get(role, "v")
     starred_dir = _VHOME / "memory" / role_dir / "starred"
     starred_dir.mkdir(parents=True, exist_ok=True)
 
