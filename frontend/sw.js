@@ -1,5 +1,5 @@
 // SCove service worker v5 — network-first for HTML, cache-first for assets.
-const CACHE = 'scove-shell-v10';
+const CACHE = 'scove-shell-v11';
 const SHELL_ASSETS = [
   '/static/manifest.json',
   '/static/icon-192.png',

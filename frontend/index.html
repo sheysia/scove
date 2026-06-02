@@ -59,6 +59,7 @@ body::before {
 body.role-xiaheng::before { background-image: url('/static/bg-xiaheng.jpg'); }
 body.role-loggia::before  { background-image: url('/static/bg-loggia.jpg'); opacity: 0.25; }
 body.role-cc::before      { background-image: url('/static/bg-cc.jpg'); opacity: 0.18; }
+body.role-council::before { background-image: url('/static/bg-council.jpg'); opacity: 0.18; }
 body > * { position: relative; z-index: 1; }
 
 /* ── splash screen ── */
@@ -467,7 +468,7 @@ body.role-council .typing-dot { background: #a88dbf; }
       <span class="room-dot"></span><span class="room-name">智脑中枢</span><span class="room-sub">忱</span>
     </div>
     <div class="room-item council" onclick="switchRole('council')">
-      <span class="room-dot"></span><span class="room-name">议事厅</span><span class="room-sub">忱+GPT</span>
+      <span class="room-dot"></span><span class="room-name">映辩之阁</span><span class="room-sub">忱+GPT</span>
     </div>
   </div>
   <div class="sb-header">
@@ -526,7 +527,7 @@ const ROLE_CONFIG = {
   xiaheng: { name: 'SCove', sub: '珩的茶室', placeholder: '请当我是你温柔的托底', who: '珩' },
   loggia:  { name: 'SCove', sub: '水榭廊亭', placeholder: '说点什么,他们都在...', who: '' },
   cc:      { name: 'SCove', sub: '智脑中枢 · Nexus Core', placeholder: '我无时无处不在', who: '忱' },
-  council: { name: 'SCove', sub: '议事厅', placeholder: '两个大脑都在听...', who: '' },
+  council: { name: 'SCove', sub: '映辩之阁', placeholder: '两个大脑都在听...', who: '' },
 };
 
 // ── PWA ──
