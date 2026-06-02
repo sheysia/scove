@@ -158,15 +158,22 @@ def _auto_title(first_msg: str) -> str:
 
 # ── Gemini streaming helper ──────────────────────────────────────
 
-def _stream_gemini(messages: list[dict], system_instruction: str):
+def _stream_gemini(messages: list[dict], system_instruction: str, image: dict | None = None):
     """Yield text chunks from Gemini streaming. Messages use Gemini roles."""
+    import base64
     from google.genai import types
 
-    # Convert messages to Gemini format
     contents = []
-    for m in messages:
+    for i, m in enumerate(messages):
         role = "user" if m["role"] == "user" else "model"
-        contents.append(types.Content(role=role, parts=[types.Part(text=m["content"])]))
+        parts = [types.Part(text=m["content"] if isinstance(m["content"], str) else "(图片)")]
+        # Attach image to the LAST user message
+        if image and role == "user" and i == len(messages) - 1:
+            parts.append(types.Part.from_bytes(
+                data=base64.b64decode(image["data"]),
+                mime_type=image["mime"],
+            ))
+        contents.append(types.Content(role=role, parts=parts))
 
     response = _gemini_client.models.generate_content_stream(
         model=_GEMINI_MODEL,
@@ -300,10 +307,11 @@ async def chat_stream(request: Request):
     user_text = body.get("message", "").strip()
     sid = body.get("session_id", "").strip()
     role = body.get("role", "v").strip()
+    image = body.get("image")  # {data: base64, mime: 'image/jpeg'} or None
     if role not in ("v", "xiaheng", "loggia", "cc"):
         role = "v"
 
-    if not user_text:
+    if not user_text and not image:
         return JSONResponse({"error": "empty message"}, status_code=400)
 
     if role in ("xiaheng", "loggia") and not _gemini_client:
@@ -313,7 +321,7 @@ async def chat_stream(request: Request):
     if not sid or sid not in _sessions:
         sid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
         s = {
-            "id": sid, "title": _auto_title(user_text), "role": role,
+            "id": sid, "title": _auto_title(user_text or "图片"), "role": role,
             "created": datetime.now().isoformat(timespec="seconds"),
             "messages": [],
         }
@@ -325,25 +333,45 @@ async def chat_stream(request: Request):
         session["role"] = role
 
     if not session["messages"] and session["title"] == "新对话":
-        session["title"] = _auto_title(user_text)
+        session["title"] = _auto_title(user_text or "图片")
         _save_session_meta(session)
 
-    session["messages"].append({"role": "user", "content": user_text})
+    # Store text-only in session history (images are too large to keep in memory)
+    session["messages"].append({"role": "user", "content": user_text or "(图片)"})
     _append_msg(sid, {
         "ts": datetime.now().isoformat(timespec="seconds"),
-        "role": "user", "content": user_text, "char": role,
+        "role": "user", "content": user_text or "(图片)", "char": role,
+        "has_image": bool(image),
     })
 
-    messages_for_api = [{"role": m["role"], "content": m["content"]} for m in session["messages"]]
+    # Build messages for API: previous turns as text, last turn may have image
+    messages_for_api = [{"role": m["role"], "content": m["content"]} for m in session["messages"][:-1]]
+
+    # Last user message: build multimodal content if image attached
+    if image and role in ("v", "cc"):
+        # Claude format: content as array of blocks
+        content_blocks = []
+        if user_text:
+            content_blocks.append({"type": "text", "text": user_text})
+        content_blocks.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": image["mime"], "data": image["data"]},
+        })
+        messages_for_api.append({"role": "user", "content": content_blocks})
+    elif image and role in ("xiaheng", "loggia"):
+        # Gemini: handled inside generators (pass image separately)
+        messages_for_api.append({"role": "user", "content": user_text or "(图片)"})
+    else:
+        messages_for_api.append({"role": "user", "content": user_text})
 
     if role == "v":
         return StreamingResponse(_generate_v(session, sid, user_text, messages_for_api), media_type="text/event-stream")
     elif role == "xiaheng":
-        return StreamingResponse(_generate_xiaheng(session, sid, user_text, messages_for_api), media_type="text/event-stream")
+        return StreamingResponse(_generate_xiaheng(session, sid, user_text, messages_for_api, image), media_type="text/event-stream")
     elif role == "cc":
         return StreamingResponse(_generate_cc(session, sid, user_text, messages_for_api), media_type="text/event-stream")
     else:  # loggia
-        return StreamingResponse(_generate_loggia(session, sid, user_text, messages_for_api), media_type="text/event-stream")
+        return StreamingResponse(_generate_loggia(session, sid, user_text, messages_for_api, image), media_type="text/event-stream")
 
 
 async def _generate_v(session, sid, user_text, messages_for_api):
@@ -423,11 +451,11 @@ async def _generate_cc(session, sid, user_text, messages_for_api):
     yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'cc', 'usage': usage}, ensure_ascii=False)}\n\n"
 
 
-async def _generate_xiaheng(session, sid, user_text, messages_for_api):
+async def _generate_xiaheng(session, sid, user_text, messages_for_api, image=None):
     reply_parts = []
     try:
         si = xc.build_system_instruction()
-        for text in _stream_gemini(messages_for_api, si):
+        for text in _stream_gemini(messages_for_api, si, image):
             reply_parts.append(text)
             yield f"data: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
     except Exception as e:
@@ -465,7 +493,7 @@ def _build_loggia_v_system():
     return blocks
 
 
-def _generate_loggia(session, sid, user_text, messages_for_api):
+def _generate_loggia(session, sid, user_text, messages_for_api, image=None):
     """User → V (Claude streaming) → 0.5s pause → 珩 (Gemini streaming).
 
     Regular (sync) generator, not async. StreamingResponse runs it in a
@@ -522,7 +550,7 @@ def _generate_loggia(session, sid, user_text, messages_for_api):
     xh_reply_parts = []
     try:
         si = xc.build_system_instruction() + _LOGGIA_XH_PATCH
-        for text in _stream_gemini(gemini_msgs, si):
+        for text in _stream_gemini(gemini_msgs, si, image):
             xh_reply_parts.append(text)
             yield f"data: {json.dumps({'text': text, 'char': 'xiaheng'}, ensure_ascii=False)}\n\n"
     except Exception as e:

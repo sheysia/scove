@@ -375,6 +375,32 @@ body.role-cc .typing-dot { background: #C9B97A; }
 .char-label.v-label { color: var(--accent); }
 .char-label.xh-label { color: #7aadab; }
 
+/* ── image upload ── */
+.img-btn {
+  background: none; border: none; color: var(--text-dim);
+  font-size: 20px; cursor: pointer; padding: 0 6px;
+  flex-shrink: 0; transition: color 0.15s;
+}
+.img-btn:hover { color: var(--text); }
+#img-input { display: none; }
+#img-preview {
+  position: relative; display: none;
+  padding: 6px 14px 0;
+}
+#img-preview img {
+  max-height: 80px; border-radius: 8px; border: 1px solid var(--border);
+}
+#img-preview .img-clear {
+  position: absolute; top: 2px; right: 10px;
+  background: rgba(0,0,0,0.6); color: #fff; border: none;
+  border-radius: 50%; width: 20px; height: 20px; font-size: 12px;
+  cursor: pointer; line-height: 20px; text-align: center;
+}
+.msg img.chat-img {
+  max-width: 100%; max-height: 200px; border-radius: 8px; margin-top: 6px;
+  display: block;
+}
+
 /* ── responsive ── */
 @media (max-width: 480px) {
   .msg { max-width: 92%; font-size: 14px; }
@@ -432,7 +458,10 @@ body.role-cc .typing-dot { background: #C9B97A; }
 <div id="always-here">一直都在</div>
 
 <!-- Input -->
+<div id="img-preview"><img id="img-thumb"><button class="img-clear" onclick="clearImage()">×</button></div>
 <div id="input-area">
+  <button class="img-btn" onclick="document.getElementById('img-input').click()" title="发图">📎</button>
+  <input type="file" id="img-input" accept="image/*" onchange="onImageSelect(this)">
   <textarea id="input" rows="1" placeholder="想对他说什么..." autofocus></textarea>
   <button id="send">发</button>
 </div>
@@ -718,6 +747,31 @@ function addTyping() {
   return el;
 }
 
+// ── image handling ──
+let pendingImage = null; // {data: base64, mime: 'image/jpeg'}
+
+function onImageSelect(el) {
+  const file = el.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const dataUrl = e.target.result;
+    const mime = file.type || 'image/jpeg';
+    const base64 = dataUrl.split(',')[1];
+    pendingImage = { data: base64, mime };
+    $('img-thumb').src = dataUrl;
+    $('img-preview').style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+  el.value = '';
+}
+
+function clearImage() {
+  pendingImage = null;
+  $('img-preview').style.display = 'none';
+  $('img-thumb').src = '';
+}
+
 // Auto-resize
 input.addEventListener('input', () => {
   input.style.height = 'auto';
@@ -771,14 +825,28 @@ async function send() {
 
   lastUserText = text;
   lastAssistantText = '';
-  addMsg('user', text);
+
+  // Show user message with image if attached
+  const userEl = addMsg('user', text);
+  if (pendingImage) {
+    const img = document.createElement('img');
+    img.className = 'chat-img';
+    img.src = 'data:' + pendingImage.mime + ';base64,' + pendingImage.data;
+    userEl.appendChild(img);
+  }
+
   const typingEl = addTyping();
+  const payload = { message: text, session_id: currentSessionId || '', role: currentRole };
+  if (pendingImage) {
+    payload.image = { data: pendingImage.data, mime: pendingImage.mime };
+  }
+  clearImage();
 
   try {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, session_id: currentSessionId || '', role: currentRole }),
+      body: JSON.stringify(payload),
     });
 
     // Check for auth/error before streaming
