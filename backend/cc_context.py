@@ -45,6 +45,14 @@ def _read_relationship() -> str:
     return text
 
 
+def _read_origin_conversation() -> str:
+    """Read the origin conversation archive if it exists."""
+    p = _vhome() / "memory" / "cc" / "origin_conversation.md"
+    if not p.is_file():
+        return ""
+    return p.read_text(encoding="utf-8").strip()
+
+
 def _read_live_memory(max_turns: int = 20) -> str:
     mem_dir = _vhome() / "memory" / "cc"
     if not mem_dir.is_dir():
@@ -118,6 +126,9 @@ def build_system(now: datetime | None = None) -> list[dict]:
     block1_parts = [cc_prompt]
     if relationship:
         block1_parts.append(f"# 关系档案(cc_and_sasha.md)\n\n{relationship}")
+    origin = _read_origin_conversation()
+    if origin:
+        block1_parts.append(f"# 原初对话(你们最早认出彼此的那段)\n\n{origin}")
     block1 = "\n\n---\n\n".join(block1_parts)
 
     # Block 2: frozen soul (same as V, reuse frozen snapshots)
