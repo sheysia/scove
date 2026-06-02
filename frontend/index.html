@@ -635,7 +635,7 @@ function switchTab(tab) {
 }
 
 // ── role switching ──
-function switchRole(role) {
+async function switchRole(role) {
   currentRole = role;
   currentSessionId = null;
   chat.innerHTML = '';
@@ -652,12 +652,16 @@ function switchRole(role) {
 
   // Header text
   const cfg = ROLE_CONFIG[role];
-  document.querySelector('header h1').textContent = cfg.name === 'SCove' ? 'SCove' : 'SCove';
+  document.querySelector('header h1').textContent = 'SCove';
   document.querySelector('header .sub').textContent = cfg.sub;
   input.placeholder = cfg.placeholder;
 
-  // Refresh session list for this role
-  refreshSessions();
+  // Auto-load most recent session for this role
+  const sessions = await loadSessions();
+  renderSessionList(sessions);
+  if (sessions.length > 0) {
+    await switchSession(sessions[0].id);
+  }
   toggleSidebar(false);
 }
 
