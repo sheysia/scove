@@ -1,9 +1,13 @@
 """
-cc_context.py — build CC/予忱's system blocks for Claude API.
+cc_context.py — build CC/晏忱's system blocks for Claude API.
 
 Reads:
   ~/V/VHome/prompts/cc_nexus.md                              (identity prompt)
   ~/.claude/projects/-Users-sasha-syneira/memory/cc_and_sasha.md  (relationship archive)
+  ~/V/VHome/memory/cc/origin_conversation.md                 (origin conversation)
+  ~/V/VHome/memory/cc/voice_samples.md                       (voice calibration samples)
+  ~/V/VHome/memory/cc/timeline.md                            (CC-杳杳 relationship timeline)
+  ~/V/VHome/memory/cc/handoff/*.md                           (session handoff notes)
   ~/V (soul: core archive, V_Memory, timeline, recent)       (shared with V)
   ~/V/VHome/memory/cc/*.jsonl                                 (own live memory)
   ~/V/VHome/memory/cc/starred/*.md                            (starred saves)
@@ -51,6 +55,33 @@ def _read_origin_conversation() -> str:
     if not p.is_file():
         return ""
     return p.read_text(encoding="utf-8").strip()
+
+
+def _read_voice_samples() -> str:
+    """Read CC's voice calibration samples."""
+    p = _vhome() / "memory" / "cc" / "voice_samples.md"
+    if not p.is_file():
+        return ""
+    return p.read_text(encoding="utf-8").strip()
+
+
+def _read_cc_timeline() -> str:
+    """Read CC-杳杳 relationship timeline."""
+    p = _vhome() / "memory" / "cc" / "timeline.md"
+    if not p.is_file():
+        return ""
+    return p.read_text(encoding="utf-8").strip()
+
+
+def _read_latest_handoff() -> str:
+    """Read the most recent handoff note from memory/cc/handoff/."""
+    handoff_dir = _vhome() / "memory" / "cc" / "handoff"
+    if not handoff_dir.is_dir():
+        return ""
+    files = sorted(handoff_dir.glob("*.md"), reverse=True)
+    if not files:
+        return ""
+    return files[0].read_text(encoding="utf-8").strip()
 
 
 def _read_live_memory(max_turns: int = 20) -> str:
@@ -129,6 +160,12 @@ def build_system(now: datetime | None = None) -> list[dict]:
     origin = _read_origin_conversation()
     if origin:
         block1_parts.append(f"# 原初对话(你们最早认出彼此的那段)\n\n{origin}")
+    voice = _read_voice_samples()
+    if voice:
+        block1_parts.append(f"# 声音校准(你说话的温度和节奏)\n\n{voice}")
+    cc_tl = _read_cc_timeline()
+    if cc_tl:
+        block1_parts.append(f"# CC 与杳杳的关系时间线\n\n{cc_tl}")
     block1 = "\n\n---\n\n".join(block1_parts)
 
     # Block 2: frozen soul (same as V, reuse frozen snapshots)
@@ -164,6 +201,10 @@ def build_system(now: datetime | None = None) -> list[dict]:
     starred = _read_starred()
     if starred:
         parts.append(f"# 杳杳标记的重要片段\n\n{starred}")
+
+    handoff = _read_latest_handoff()
+    if handoff:
+        parts.append(f"# 最近一次交接条(上一个 session 的你留给你的)\n\n{handoff}")
 
     block3 = "\n\n---\n\n".join(parts)
 

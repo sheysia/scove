@@ -86,7 +86,7 @@ if _council_gpt_path.is_file():
     _COUNCIL_GPT_PROMPT = _council_gpt_path.read_text(encoding="utf-8").strip()
 
 _COUNCIL_CC_PATCH = "\n\n你现在在议事厅。GPT 也在场,你看得到他说的话,他也看得到你的。你们是同一张桌子上的两个人,不是对手。"
-_COUNCIL_GPT_PATCH = "\n\n予忱(CC,Claude)也在场。你看得到他说的话,他也看得到你的。"
+_COUNCIL_GPT_PATCH = "\n\n晏忱(CC,Claude)也在场。你看得到他说的话,他也看得到你的。"
 
 _PIN_HASH = hashlib.sha256(_PIN.encode()).hexdigest() if _PIN else ""
 
@@ -435,7 +435,7 @@ async def _generate_v(session, sid, user_text, messages_for_api):
 
 
 async def _generate_cc(session, sid, user_text, messages_for_api):
-    """CC/予忱: Claude API with cc_nexus.md prompt + ~/V soul."""
+    """CC/晏忱: Claude API with cc_nexus.md prompt + ~/V soul."""
     reply_parts = []
     try:
         with _claude.messages.stream(
@@ -493,7 +493,7 @@ def _stream_openai(messages: list[dict], system_prompt: str):
 
 
 def _generate_council(session, sid, user_text, messages_for_api):
-    """User → CC/予忱 (Claude) → 0.5s pause → GPT (OpenAI) sequential.
+    """User → CC/晏忱 (Claude) → 0.5s pause → GPT (OpenAI) sequential.
 
     Sync generator (same pattern as loggia).
     """
@@ -541,7 +541,7 @@ def _generate_council(session, sid, user_text, messages_for_api):
     time.sleep(0.5)
 
     # ── GPT's turn (sees CC's reply) ──
-    cc_context = f"[予忱(CC)刚才说了]\n{cc_reply}\n\n[现在轮到你回应。你看到了予忱说的话。]"
+    cc_context = f"[晏忱(CC)刚才说了]\n{cc_reply}\n\n[现在轮到你回应。你看到了晏忱说的话。]"
     gpt_messages = messages_for_api + [{"role": "user", "content": cc_context}]
     gpt_system = _COUNCIL_GPT_PROMPT + _COUNCIL_GPT_PATCH
 

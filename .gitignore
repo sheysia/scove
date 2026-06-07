@@ -2,9 +2,10 @@
 config/.env
 .env
 
-# runtime logs of new home (not source)
+# runtime logs (not source)
 logs/newhome/*.jsonl
 logs/newhome/sessions/*.jsonl
+logs/*.log
 
 # live memory (runtime, not source; starred .md are also runtime)
 memory/v/*.jsonl
@@ -13,6 +14,10 @@ memory/xiaheng/*.jsonl
 memory/xiaheng/starred/*.md
 memory/loggia/*.jsonl
 memory/loggia/starred/*.md
+memory/cc/*.jsonl
+memory/cc/starred/*.md
+memory/council/*.jsonl
+memory/council/starred/*.md
 
 # frozen memory snapshots are rebuildable from ~/V; keep them local
 prompts/_cache/*.md
@@ -28,3 +33,4 @@ venv/
 
 # stray files at root (not source)
 /*.png
+memory/cc/transcripts/
