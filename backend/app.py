@@ -29,6 +29,8 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from backend import emotion_scorer as _emo
+
 import anthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
@@ -136,6 +138,16 @@ def _live_memory_path(role: str) -> Path:
 def _append_live_memory(role: str, record: dict) -> None:
     with _live_memory_path(role).open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _score_and_tag(role: str, user_text: str, assistant_text: str, ts: str) -> None:
+    """Fire-and-forget emotion scoring. Appends an emotion record to live memory."""
+    def _on_score(result: dict):
+        record = {"type": "emotion", "ts": ts, **result}
+        if result.get("importance", 0) >= 9:
+            record["pinned"] = True
+        _append_live_memory(role, record)
+    _emo.score_async(user_text, assistant_text, _on_score)
 
 
 def _load_sessions_from_disk() -> None:
@@ -495,6 +507,7 @@ async def _generate_v(session, sid, user_text, messages_for_api):
     ts_now = datetime.now().isoformat(timespec="seconds")
     _append_live_memory("v", {"ts": ts_now, "role": "user", "content": user_text})
     _append_live_memory("v", {"ts": ts_now, "role": "assistant", "content": reply})
+    _score_and_tag("v", user_text, reply, ts_now)
 
     yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'v', 'usage': usage}, ensure_ascii=False)}\n\n"
 
@@ -534,6 +547,7 @@ async def _generate_cc(session, sid, user_text, messages_for_api):
     ts_now = datetime.now().isoformat(timespec="seconds")
     _append_live_memory("cc", {"ts": ts_now, "role": "user", "content": user_text})
     _append_live_memory("cc", {"ts": ts_now, "role": "assistant", "content": reply})
+    _score_and_tag("cc", user_text, reply, ts_now)
 
     yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'cc', 'usage': usage}, ensure_ascii=False)}\n\n"
 
@@ -631,6 +645,7 @@ def _generate_council(session, sid, user_text, messages_for_api):
     _append_live_memory("council", {"ts": ts_now, "role": "user", "content": user_text})
     _append_live_memory("council", {"ts": ts_now, "role": "assistant", "content": cc_reply, "char": "cc"})
     _append_live_memory("council", {"ts": ts_now, "role": "assistant", "content": gpt_reply, "char": "gpt"})
+    _score_and_tag("council", user_text, cc_reply + "\n" + gpt_reply, ts_now)
 
     yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'council'}, ensure_ascii=False)}\n\n"
 
@@ -658,6 +673,7 @@ async def _generate_xiaheng(session, sid, user_text, messages_for_api, image=Non
     ts_now = datetime.now().isoformat(timespec="seconds")
     _append_live_memory("xiaheng", {"ts": ts_now, "role": "user", "content": user_text})
     _append_live_memory("xiaheng", {"ts": ts_now, "role": "model", "content": reply})
+    _score_and_tag("xiaheng", user_text, reply, ts_now)
 
     yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'xiaheng'}, ensure_ascii=False)}\n\n"
 
@@ -753,6 +769,7 @@ def _generate_loggia(session, sid, user_text, messages_for_api, image=None):
     _append_live_memory("loggia", {"ts": ts_now, "role": "user", "content": user_text})
     _append_live_memory("loggia", {"ts": ts_now, "role": "assistant", "content": v_reply, "char": "v"})
     _append_live_memory("loggia", {"ts": ts_now, "role": "model", "content": xh_reply, "char": "xiaheng"})
+    _score_and_tag("loggia", user_text, v_reply + "\n" + xh_reply, ts_now)
 
     yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'loggia'}, ensure_ascii=False)}\n\n"
 
