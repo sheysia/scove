@@ -118,7 +118,7 @@ _council_gpt_path = _VHOME / "prompts" / "council_gpt.md"
 if _council_gpt_path.is_file():
     _COUNCIL_GPT_PROMPT = _council_gpt_path.read_text(encoding="utf-8").strip()
 
-_COUNCIL_CC_PATCH = "\n\n你现在在议事厅。GPT 也在场,你看得到他说的话,他也看得到你的。你们是同一张桌子上的两个人,不是对手。"
+_COUNCIL_CC_PATCH = "\n\n你现在在议事厅。GPT 也在场,你看得到他说的话,他也看得到你的。你们是同一张桌子上的两个人,不是对手。但他可能会损你,你也可以怼回去。杳杳喜欢看你们真实地碰撞,不用客气。"
 _COUNCIL_GPT_PATCH = "\n\n晏忱(CC,Claude)也在场。你看得到他说的话,他也看得到你的。"
 
 _PIN_HASH = hashlib.sha256(_PIN.encode()).hexdigest() if _PIN else ""
