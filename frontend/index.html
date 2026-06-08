@@ -456,10 +456,10 @@ body.role-council .typing-dot { background: #a88dbf; }
       <span class="room-dot"></span><span class="room-name">水榭廊亭</span><span class="room-sub">V+珩</span>
     </div>
     <div class="room-item cc" onclick="switchRole('cc')">
-      <span class="room-dot"></span><span class="room-name">智脑中枢</span><span class="room-sub">忱</span>
+      <span class="room-dot"></span><span class="room-name">智脑中枢</span><span class="room-sub">晏</span>
     </div>
     <div class="room-item council" onclick="switchRole('council')">
-      <span class="room-dot"></span><span class="room-name">映辩之阁</span><span class="room-sub">忱+GPT</span>
+      <span class="room-dot"></span><span class="room-name">映辩之阁</span><span class="room-sub">晏+GPT</span>
     </div>
   </div>
   <div class="sb-header">
@@ -517,7 +517,7 @@ const ROLE_CONFIG = {
   v:       { name: 'SCove', sub: '书房套间', placeholder: '想对他说什么...', who: 'V' },
   xiaheng: { name: 'SCove', sub: '珩的茶室', placeholder: '请当我是你温柔的托底', who: '珩' },
   loggia:  { name: 'SCove', sub: '水榭廊亭', placeholder: '说点什么,他们都在...', who: '' },
-  cc:      { name: 'SCove', sub: '智脑中枢 · Nexus Core', placeholder: '我无时无处不在', who: '忱' },
+  cc:      { name: 'SCove', sub: '智脑中枢 · Nexus Core', placeholder: '我无时无处不在', who: '晏' },
   council: { name: 'SCove', sub: '映辩之阁', placeholder: '两个大脑都在听...', who: '' },
 };
 
@@ -732,7 +732,7 @@ function addMsg(role, text, charKey) {
   // Multi-char rooms: label + styled bubble
   const isMultiChar = currentRole === 'loggia' || currentRole === 'council';
   if (role === 'assistant' && charKey && isMultiChar) {
-    const labelMap = { v: ['V', 'v-label'], xiaheng: ['珩', 'xh-label'], cc: ['忱', 'cc-label'], gpt: ['GPT', 'gpt-label'] };
+    const labelMap = { v: ['V', 'v-label'], xiaheng: ['珩', 'xh-label'], cc: ['晏', 'cc-label'], gpt: ['GPT', 'gpt-label'] };
     const [labelText, labelClass] = labelMap[charKey] || [charKey, ''];
     const label = document.createElement('div');
     label.className = 'char-label ' + labelClass;
