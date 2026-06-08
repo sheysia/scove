@@ -656,9 +656,11 @@ def _generate_council(session, sid, user_text, messages_for_api):
     # ── pause ──
     time.sleep(0.5)
 
-    # ── GPT's turn (sees CC's reply) ──
-    cc_context = f"[晏忱(CC)刚才说了]\n{cc_reply}\n\n[现在轮到你回应。你看到了晏忱说的话。]"
-    gpt_messages = messages_for_api + [{"role": "user", "content": cc_context}]
+    # ── GPT's turn (sees full context + CC's reply as natural conversation) ──
+    gpt_messages = messages_for_api + [
+        {"role": "assistant", "content": cc_reply},
+        {"role": "user", "content": "(以上是晏忱的回应。你怎么看?)"},
+    ]
     gpt_system = _COUNCIL_GPT_PROMPT + _COUNCIL_GPT_PATCH
 
     gpt_reply_parts = []
