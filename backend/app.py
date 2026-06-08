@@ -24,12 +24,15 @@ import json
 import os
 import secrets
 import sys
+import time as _time
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
 import anthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -209,6 +212,23 @@ def _stream_gemini(messages: list[dict], system_instruction: str, image: dict | 
 # ── FastAPI ──────────────────────────────────────────────────────
 
 app = FastAPI(title="SCove", docs_url=None, redoc_url=None)
+
+# CORS: restrict to known origins in production
+_CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "").strip()
+if _CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in _CORS_ORIGINS.split(",")],
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["*"],
+        allow_credentials=True,
+    )
+
+# Rate limiter for PIN attempts: {ip: (fail_count, lockout_until)}
+_pin_fails: dict[str, tuple[int, float]] = defaultdict(lambda: (0, 0.0))
+_PIN_MAX_FAILS = 5
+_PIN_LOCKOUT_SECS = 60
+
 _FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/static", StaticFiles(directory=str(_FRONTEND)), name="static")
 
@@ -226,6 +246,33 @@ async def index():
     return (_FRONTEND / "index.html").read_text(encoding="utf-8")
 
 
+# ── health ───────────────────────────────────────────────────────
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz():
+    checks = {}
+    # Check memory dir writable
+    mem_dir = _VHOME / "memory"
+    checks["memory_dir"] = mem_dir.is_dir()
+    # Check logs dir writable
+    log_dir = _VHOME / "logs"
+    checks["logs_dir"] = log_dir.is_dir()
+    # Check prompts readable
+    prompts_dir = _VHOME / "prompts"
+    checks["prompts_dir"] = prompts_dir.is_dir()
+    # On cloud, check /data mount exists
+    if os.environ.get("FLY_APP_NAME"):
+        checks["data_mount"] = Path("/data").is_dir()
+    all_ok = all(checks.values())
+    status = 200 if all_ok else 503
+    return JSONResponse({"ready": all_ok, "checks": checks}, status_code=status)
+
+
 # ── PIN ──────────────────────────────────────────────────────────
 
 @app.get("/api/auth/status")
@@ -238,13 +285,31 @@ async def auth_status(request: Request):
 
 @app.post("/api/auth/pin")
 async def auth_pin(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    fails, lockout_until = _pin_fails[client_ip]
+    now = _time.time()
+    if fails >= _PIN_MAX_FAILS and now < lockout_until:
+        remaining = int(lockout_until - now)
+        return JSONResponse(
+            {"ok": False, "error": f"Too many attempts. Try again in {remaining}s"},
+            status_code=429,
+        )
+
     body = await request.json()
     pin = body.get("pin", "")
     if not _PIN or pin == _PIN:
+        _pin_fails[client_ip] = (0, 0.0)
         resp = JSONResponse({"ok": True})
         if _PIN:
-            resp.set_cookie("scove_pin", _PIN_HASH, max_age=86400, httponly=True, samesite="strict")
+            resp.set_cookie(
+                "scove_pin", _PIN_HASH, max_age=86400,
+                httponly=True, samesite="strict", secure=True,
+            )
         return resp
+    # Failed attempt
+    fails += 1
+    lockout = now + _PIN_LOCKOUT_SECS if fails >= _PIN_MAX_FAILS else 0.0
+    _pin_fails[client_ip] = (fails, lockout)
     return JSONResponse({"ok": False, "error": "PIN incorrect"}, status_code=403)
 
 

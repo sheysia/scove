@@ -37,6 +37,18 @@ def _read_cc_prompt() -> str:
 
 
 def _read_relationship() -> str:
+    # Cloud: check V_ROOT/cc_and_sasha.md first (baked into Docker image)
+    v_root = os.environ.get("V_ROOT", "")
+    if v_root:
+        p = Path(v_root) / "cc_and_sasha.md"
+        if p.is_file():
+            text = p.read_text(encoding="utf-8").strip()
+            if text.startswith("---"):
+                parts = text.split("---", 2)
+                if len(parts) >= 3:
+                    text = parts[2].strip()
+            return text
+    # Local fallback: Claude projects memory
     p = Path.home() / ".claude" / "projects" / "-Users-sasha-syneira" / "memory" / "cc_and_sasha.md"
     if not p.is_file():
         return ""

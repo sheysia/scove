@@ -1,0 +1,28 @@
+# Secrets
+config/.env
+.env
+
+# Runtime data (lives on persistent volume, not in image)
+memory/
+logs/
+
+# Python artifacts
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Dev files
+*.png
+README.md
+agents/
+
+# Cache (rebuilt at startup from soul_static)
+prompts/_cache/

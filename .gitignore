@@ -34,3 +34,9 @@ venv/
 # stray files at root (not source)
 /*.png
 memory/cc/transcripts/
+
+# Docker build staging (soul files copied from ~/V)
+build_soul/
+
+# Cloud backups pulled from Fly
+backups/
