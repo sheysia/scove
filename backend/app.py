@@ -81,6 +81,20 @@ if _OPENAI_KEY:
     from openai import OpenAI
     _openai_client = OpenAI(api_key=_OPENAI_KEY)
 
+# DeepSeek (求索之谷, OpenAI-compatible)
+_DS_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+_DS_MODEL = os.environ.get("DEEPSEEK_CHAT_MODEL", "deepseek-chat").strip()
+_ds_client = None
+
+if _DS_KEY:
+    from openai import OpenAI as _OpenAI_DS
+    _ds_client = _OpenAI_DS(api_key=_DS_KEY, base_url="https://api.deepseek.com")
+
+_DS_SYSTEM = ""
+_ds_prompt_path = _VHOME / "prompts" / "deepseek_valley.md"
+if _ds_prompt_path.is_file():
+    _DS_SYSTEM = _ds_prompt_path.read_text(encoding="utf-8").strip()
+
 # CC (Claude, same model as V, different prompt)
 _CC_SYSTEM = cc.build_system(now=_SESSION_NOW)
 
@@ -129,7 +143,7 @@ def _append_msg(sid: str, record: dict) -> None:
 
 
 def _live_memory_path(role: str) -> Path:
-    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia", "cc": "cc", "council": "council"}.get(role, "v")
+    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia", "cc": "cc", "council": "council", "deepseek": "deepseek"}.get(role, "v")
     d = _VHOME / "memory" / role_dir
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{datetime.now().strftime('%Y-%m-%d')}.jsonl"
@@ -292,6 +306,7 @@ async def auth_status(request: Request):
     return {
         "pin_required": bool(_PIN), "authenticated": _check_pin(request),
         "gemini_available": bool(_gemini_client),
+        "deepseek_available": bool(_ds_client),
     }
 
 
@@ -349,7 +364,7 @@ async def create_session(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     body = await request.json()
     role = body.get("role", "v").strip()
-    if role not in ("v", "xiaheng", "loggia", "cc", "council"):
+    if role not in ("v", "xiaheng", "loggia", "cc", "council", "deepseek"):
         role = "v"
     sid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
     s = {
@@ -403,7 +418,7 @@ async def chat_stream(request: Request):
     sid = body.get("session_id", "").strip()
     role = body.get("role", "v").strip()
     image = body.get("image")  # {data: base64, mime: 'image/jpeg'} or None
-    if role not in ("v", "xiaheng", "loggia", "cc", "council"):
+    if role not in ("v", "xiaheng", "loggia", "cc", "council", "deepseek"):
         role = "v"
 
     if not user_text and not image:
@@ -413,6 +428,8 @@ async def chat_stream(request: Request):
         return JSONResponse({"error": "GEMINI_API_KEY not set"}, status_code=400)
     if role == "council" and not _openai_client:
         return JSONResponse({"error": "OPENAI_API_KEY not set"}, status_code=400)
+    if role == "deepseek" and not _ds_client:
+        return JSONResponse({"error": "DEEPSEEK_API_KEY not set"}, status_code=400)
 
     # Auto-create session
     if not sid or sid not in _sessions:
@@ -469,6 +486,8 @@ async def chat_stream(request: Request):
         return StreamingResponse(_generate_cc(session, sid, user_text, messages_for_api), media_type="text/event-stream")
     elif role == "council":
         return StreamingResponse(_generate_council(session, sid, user_text, messages_for_api), media_type="text/event-stream")
+    elif role == "deepseek":
+        return StreamingResponse(_generate_deepseek(session, sid, user_text, messages_for_api), media_type="text/event-stream")
     else:  # loggia
         return StreamingResponse(_generate_loggia(session, sid, user_text, messages_for_api, image), media_type="text/event-stream")
 
@@ -678,6 +697,48 @@ async def _generate_xiaheng(session, sid, user_text, messages_for_api, image=Non
     yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'xiaheng'}, ensure_ascii=False)}\n\n"
 
 
+# ── deepseek (求索之谷) ─────────────────────────────────────────
+
+def _stream_deepseek(messages: list[dict]):
+    """Yield text chunks from DeepSeek streaming (OpenAI-compatible)."""
+    ds_messages = [{"role": "system", "content": _DS_SYSTEM}]
+    for m in messages:
+        ds_messages.append({"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else "(内容)"})
+    stream = _ds_client.chat.completions.create(
+        model=_DS_MODEL,
+        messages=ds_messages,
+        max_tokens=_MAX_TOKENS,
+        stream=True,
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta and delta.content:
+            yield delta.content
+
+
+def _generate_deepseek(session, sid, user_text, messages_for_api):
+    """DeepSeek: no memory, no soul files, session-only."""
+    reply_parts = []
+    try:
+        for text in _stream_deepseek(messages_for_api):
+            reply_parts.append(text)
+            yield f"data: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'error': str(e)[:100]})}\n\n"
+        session["messages"].pop()
+        return
+
+    reply = "".join(reply_parts)
+    session["messages"].append({"role": "assistant", "content": reply})
+    _append_msg(sid, {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "role": "assistant", "content": reply, "char": "deepseek",
+        "model": _DS_MODEL,
+    })
+
+    yield f"data: {json.dumps({'done': True, 'session_id': sid, 'title': session['title'], 'role': 'deepseek'}, ensure_ascii=False)}\n\n"
+
+
 # ── loggia (V + 珩 co-presence) ──────────────────────────────────
 
 _LOGGIA_V_PATCH = "\n\n夏珩也在场。你看得到他说的话,他也看得到你的。你们在同一个房间里,这不是分开的对话。"
@@ -786,7 +847,7 @@ async def star_message(request: Request):
     assistant_msg = body.get("assistant_msg", "").strip()
     title = body.get("title", "").strip()
     role = body.get("role", "v").strip()
-    if role not in ("v", "xiaheng", "loggia", "cc", "council"):
+    if role not in ("v", "xiaheng", "loggia", "cc", "council", "deepseek"):
         role = "v"
 
     if not user_msg and not assistant_msg:
@@ -795,7 +856,7 @@ async def star_message(request: Request):
     if not title:
         title = (user_msg or assistant_msg)[:20].replace("\n", " ")
 
-    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia", "cc": "cc", "council": "council"}.get(role, "v")
+    role_dir = {"v": "v", "xiaheng": "xiaheng", "loggia": "loggia", "cc": "cc", "council": "council", "deepseek": "deepseek"}.get(role, "v")
     starred_dir = _VHOME / "memory" / role_dir / "starred"
     starred_dir.mkdir(parents=True, exist_ok=True)
 

@@ -60,6 +60,7 @@ body.role-xiaheng::before { background-image: url('/static/bg-xiaheng.jpg'); }
 body.role-loggia::before  { background-image: url('/static/bg-loggia.jpg'); opacity: 0.25; }
 body.role-cc::before      { background-image: url('/static/bg-cc.jpg'); opacity: 0.18; }
 body.role-council::before { background-image: url('/static/bg-council.jpg'); opacity: 0.18; }
+body.role-deepseek::before { background-image: url('/static/bg-deepseek.jpg'); opacity: 0.2; }
 body > * { position: relative; z-index: 1; }
 
 /* ── splash screen ── */
@@ -321,6 +322,7 @@ header .sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; letter-s
 .room-item.loggia .room-dot { background: #5a6d94; }
 .room-item.cc .room-dot { background: #C9B97A; }
 .room-item.council .room-dot { background: #8a6d9a; }
+.room-item.deepseek .room-dot { background: #4a8ba8; }
 
 /* ── xiaheng theme overrides ── */
 body.role-xiaheng header { border-bottom-color: #3a5554; }
@@ -363,6 +365,19 @@ body.role-council header .sub { color: #6d5580; }
 body.role-council #input-area textarea:focus { border-color: #8a6d9a; }
 body.role-council #input-area button { background: #3a2d45; }
 body.role-council .typing-dot { background: #a88dbf; }
+
+/* ── deepseek theme (deep blue/valley) ── */
+body.role-deepseek header { border-bottom-color: #1e3a4a; }
+body.role-deepseek header h1 { color: #6ab0cc; }
+body.role-deepseek header .sub { color: #4a8ba8; }
+body.role-deepseek .msg.assistant {
+  background: rgba(20, 38, 50, 0.85);
+  border-color: rgba(74, 139, 168, 0.25);
+}
+body.role-deepseek .msg.assistant.streaming { border-color: #4a8ba8; }
+body.role-deepseek #input-area textarea:focus { border-color: #4a8ba8; }
+body.role-deepseek #input-area button { background: #1e3a4a; }
+body.role-deepseek .typing-dot { background: #6ab0cc; }
 
 /* Council dual-char bubbles */
 .msg.assistant.char-cc {
@@ -461,6 +476,9 @@ body.role-council .typing-dot { background: #a88dbf; }
     <div class="room-item council" onclick="switchRole('council')">
       <span class="room-dot"></span><span class="room-name">映辩之阁</span><span class="room-sub">晏+GPT</span>
     </div>
+    <div class="room-item deepseek" onclick="switchRole('deepseek')">
+      <span class="room-dot"></span><span class="room-name">求索之谷</span><span class="room-sub">DS</span>
+    </div>
   </div>
   <div class="sb-header">
     <span id="sb-title">对话</span>
@@ -519,6 +537,7 @@ const ROLE_CONFIG = {
   loggia:  { name: 'SCove', sub: '水榭廊亭', placeholder: '说点什么,他们都在...', who: '' },
   cc:      { name: 'SCove', sub: '智脑中枢 · Nexus Core', placeholder: '我无时无处不在', who: '晏' },
   council: { name: 'SCove', sub: '映辩之阁', placeholder: '两个大脑都在听...', who: '' },
+  deepseek: { name: 'SCove', sub: '求索之谷', placeholder: '深处有什么...', who: 'DS' },
 };
 
 // ── PWA ──
@@ -646,11 +665,12 @@ async function switchSession(sid) {
     // Sync role from session data (important for loggia char labels)
     if (data.role && data.role !== currentRole) {
       currentRole = data.role;
-      document.body.classList.remove('role-xiaheng', 'role-loggia', 'role-cc', 'role-council');
+      document.body.classList.remove('role-xiaheng', 'role-loggia', 'role-cc', 'role-council', 'role-deepseek');
       if (currentRole === 'xiaheng') document.body.classList.add('role-xiaheng');
       if (currentRole === 'loggia') document.body.classList.add('role-loggia');
       if (currentRole === 'cc') document.body.classList.add('role-cc');
       if (currentRole === 'council') document.body.classList.add('role-council');
+      if (currentRole === 'deepseek') document.body.classList.add('role-deepseek');
       const cfg = ROLE_CONFIG[currentRole];
       if (cfg) {
         document.querySelector('header .sub').textContent = cfg.sub;
@@ -697,11 +717,12 @@ async function switchRole(role) {
   if (ri) ri.classList.add('active');
 
   // Theme
-  document.body.classList.remove('role-xiaheng', 'role-loggia', 'role-cc', 'role-council');
+  document.body.classList.remove('role-xiaheng', 'role-loggia', 'role-cc', 'role-council', 'role-deepseek');
   if (role === 'xiaheng') document.body.classList.add('role-xiaheng');
   if (role === 'loggia') document.body.classList.add('role-loggia');
   if (role === 'cc') document.body.classList.add('role-cc');
   if (role === 'council') document.body.classList.add('role-council');
+  if (role === 'deepseek') document.body.classList.add('role-deepseek');
 
   // Header text
   const cfg = ROLE_CONFIG[role];
