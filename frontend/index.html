@@ -95,26 +95,23 @@ body > * { position: relative; z-index: 1; }
   margin-top: 25vh;
 }
 #splash-pin.show { display: flex; }
-#splash-pin .pin-dots {
-  display: flex; gap: 14px;
-}
-#splash-pin .pin-dot {
-  width: 14px; height: 14px; border-radius: 50%;
+#splash-pin-input {
+  width: 200px; padding: 10px 14px;
+  background: rgba(255,255,255,0.08);
   border: 1.5px solid var(--gold);
-  background: transparent;
-  transition: background 0.15s;
+  border-radius: 8px;
+  color: var(--gold); font-size: 16px;
+  text-align: center; letter-spacing: 0.15em;
+  outline: none;
+  -webkit-text-security: disc;
 }
-#splash-pin .pin-dot.filled {
-  background: var(--gold);
+#splash-pin-input::placeholder {
+  color: rgba(200, 180, 140, 0.4);
+  letter-spacing: 0.05em;
 }
 #splash-pin .pin-err {
   color: rgba(200, 80, 80, 0.9); font-size: 12px; min-height: 16px;
   letter-spacing: 0.05em;
-}
-/* Hidden real input behind the dots */
-#splash-pin-input {
-  position: absolute; opacity: 0; width: 1px; height: 1px;
-  pointer-events: none;
 }
 
 /* ── old PIN overlay (removed, replaced by splash) ── */
@@ -440,14 +437,8 @@ body.role-council .typing-dot { background: #a88dbf; }
   <div class="door-left"></div>
   <div class="door-right"></div>
   <div id="splash-pin">
-    <div class="pin-dots">
-      <div class="pin-dot" data-i="0"></div>
-      <div class="pin-dot" data-i="1"></div>
-      <div class="pin-dot" data-i="2"></div>
-      <div class="pin-dot" data-i="3"></div>
-    </div>
+    <input id="splash-pin-input" type="password" autocomplete="off" placeholder="PIN">
     <div class="pin-err" id="splash-pin-err"></div>
-    <input id="splash-pin-input" type="tel" maxlength="4" inputmode="numeric" autocomplete="off">
   </div>
 </div>
 
@@ -560,35 +551,28 @@ function onSplashTap() {
   const pinArea = $('splash-pin');
   const pinInput = $('splash-pin-input');
   pinArea.classList.add('show');
-  pinInput.style.pointerEvents = 'auto';
   pinInput.focus();
-  pinInput.addEventListener('input', onPinInput);
+  pinInput.addEventListener('keydown', onPinKey);
 }
 
-async function onPinInput() {
+async function onPinKey(e) {
+  if (e.key !== 'Enter') return;
   const pinInput = $('splash-pin-input');
-  const val = pinInput.value.replace(/\D/g, '').slice(0, 4);
-  pinInput.value = val;
+  const val = pinInput.value;
+  if (!val) return;
 
-  // Update dots
-  document.querySelectorAll('#splash-pin .pin-dot').forEach((dot, i) => {
-    dot.classList.toggle('filled', i < val.length);
+  const resp = await fetch('/api/auth/pin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: val }),
   });
-
-  if (val.length === 4) {
-    const resp = await fetch('/api/auth/pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: val }),
-    });
-    if (resp.ok) {
-      openDoor();
-    } else {
-      $('splash-pin-err').textContent = '不对';
-      pinInput.value = '';
-      document.querySelectorAll('#splash-pin .pin-dot').forEach(d => d.classList.remove('filled'));
-      setTimeout(() => { $('splash-pin-err').textContent = ''; }, 1500);
-    }
+  if (resp.ok) {
+    openDoor();
+  } else {
+    const data = await resp.json().catch(() => ({}));
+    $('splash-pin-err').textContent = data.error || '不对';
+    pinInput.value = '';
+    setTimeout(() => { $('splash-pin-err').textContent = ''; }, 2000);
   }
 }
 
