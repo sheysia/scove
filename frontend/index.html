@@ -910,11 +910,12 @@ async function send() {
         try {
           const data = JSON.parse(line.slice(6));
 
-          // Loggia: when char changes, start a new bubble
+          // Multi-char rooms: when char changes, start a new bubble
+          const isMulti = currentRole === 'loggia' || currentRole === 'council';
           if (data.text) {
             const charKey = data.char || currentRole;
-            if (!msgEl || (currentRole === 'loggia' && charKey !== currentChar)) {
-              if (msgEl) msgEl.classList.remove('streaming');
+            if (!msgEl || (isMulti && charKey !== currentChar)) {
+              if (msgEl) { msgEl.classList.remove('streaming'); addStarButton(msgEl); }
               currentChar = charKey;
               msgEl = addMsg('assistant', '', charKey);
               msgEl.classList.add('streaming');
@@ -922,7 +923,7 @@ async function send() {
             msgEl.textContent += data.text;
             chat.scrollTop = chat.scrollHeight;
           }
-          if (data.v_done && currentRole === 'loggia') {
+          if (data.v_done && isMulti) {
             if (msgEl) { msgEl.classList.remove('streaming'); addStarButton(msgEl); }
             msgEl = null;
           }
