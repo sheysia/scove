@@ -1,27 +1,38 @@
-app = "scove-app"
-primary_region = "sjc"
+# fly.toml app configuration file generated for scove-app on 2026-06-07T21:49:50-04:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'scove-app'
+primary_region = 'sjc'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  V_ROOT = "/soul_static"
-  VHOME_ROOT = "/app"
+  VHOME_ROOT = '/app'
+  V_ROOT = '/soul_static'
 
-[mounts]
-  source = "scove_data"
-  destination = "/data"
+[[mounts]]
+  source = 'scove_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8787
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
   [[http_service.checks]]
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "20s"
-    method = "GET"
-    path = "/healthz"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '20s'
+    method = 'GET'
+    path = '/healthz'
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024
